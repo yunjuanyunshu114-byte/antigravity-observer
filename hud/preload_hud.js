@@ -2671,7 +2671,8 @@
             <span>📅 每日 Token 统计</span>
             ${hud.dailyPanelLoading ? `<span class="gn-state-tag">同步中…</span>` : ''}
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <button type="button" class="gn-chip" data-gn-pet="open-daily-modal" title="打开详细每日 Token 统计窗口" style="padding:1px 6px;">📊 详情</button>
             <button type="button" class="gn-chip" data-gn-pet="refresh-daily" title="刷新" style="padding:1px 6px;">🔄</button>
             <button type="button" class="gn-chip" data-gn-pet="close-panel" title="关闭" style="padding:1px 6px;">×</button>
           </div>
@@ -3121,6 +3122,10 @@
             hud.dailySelectedDate = '';
             syncPanelVisibility();
             loadDailyHeatmapData(true);
+          } else if (act === 'open-daily-modal') {
+            hud.panelMode = '';
+            syncPanelVisibility();
+            openDailyTokensModal();
           } else if (act === 'refresh-daily') {
             loadDailyHeatmapData(true);
           } else if (act === 'refresh') {
