@@ -1,26 +1,31 @@
-# Gemini 猫娘观察台 · 反重力观察窗（Antigravity Observer v1.2.0）
+# Gemini 猫娘观察台 · 反重力观察窗（Antigravity Observer v1.3.0）
 
-> 专为 **Google Antigravity ** 打造的应用内紧贴右下角 **Gemini 猫娘桌面挂件**与**上下文 / Token / 额度观察窗**（GitHub 仓库：`antigravity-observer`，插件 ID：`gemini-neko-cockpit`，兼容保留 `AG_ZH` 中文汉化补丁）。
+> 专为 **Google Antigravity**（已实测适配 `2.35.1`）打造的应用内紧贴右下角 **Gemini 猫娘桌面挂件**与**上下文 / Token / 额度观察窗**（GitHub 仓库：`antigravity-observer`，插件 ID：`gemini-neko-cockpit`，兼容保留 `AG_ZH` 中文汉化补丁）。
 
-[![version](https://img.shields.io/badge/version-v1.2.0-6366f1.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer/releases)
-[![Antigravity](https://img.shields.io/badge/Antigravity-2.0-8b5cf6.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer)
+[![version](https://img.shields.io/badge/version-v1.3.0-6366f1.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer/releases)
+[![Antigravity](https://img.shields.io/badge/Antigravity-2.35.1-8b5cf6.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-10b981.svg)](#第二步执行安装)
 
-在 Antigravity 客户端右下角静默陪伴你的专属 **Gemini 猫娘挂件**——平时仅显示贴边主形象，AI 思考时自动切换「吃大米」差分，戳一戳触发 `><` 表情、Q 弹动画、音效与三段式思考气泡，**每轮模型对话结束自动冒泡 10 秒播报本轮消耗额度**；同时保留输入框下方紧凑统计胶囊、可滚动上下文深度观察窗以及 Sidecar 原生侧栏面板。
+在 Antigravity 客户端右下角静默陪伴你的专属 **Gemini 猫娘挂件**——平时仅显示贴边主形象，AI 思考时自动切换「吃大米」差分，**出现审查需求、权限确认或提问提示时立即切换专属「确认提醒」差分、响起提示音效并冒泡点名请求主人确认的项目（确认后自动结束并恢复原本状态）**，戳一戳触发 `><` 表情、Q 弹动画、音效与三段式思考气泡，**每轮模型对话结束自动冒泡 10 秒播报本轮消耗额度**；同时保留输入框下方紧凑统计胶囊、可滚动上下文深度观察窗以及 Sidecar 原生侧栏面板。
 
 ![平时待机态与输入框下方紧凑统计栏](./docs/screenshots/01-idle-and-stats.png)
 
 ---
 
-## 📋 v1.2.0 版本特性总览
+## 📋 v1.3.0 版本特性总览
 
 ### 1. 应用内紧贴右下角 Gemini 猫娘挂件
-- **无打扰静默待机**：紧贴窗口右下角（`0px` 贴边），平时仅展示统一蓝紫发色、透明抠图处理的 Gemini 娘主形象，不常驻额外按钮或遮挡工作区。
-- **四帧表情差分自动联动**：
+- **无打扰静默待机**：紧贴窗口右下角（`0px` 贴边），平时仅展示统一无鲸鱼耳猫娘头发与蓝紫发色、透明抠图处理的 Gemini 娘主形象，不常驻额外按钮或遮挡工作区。
+- **内置两套默认皮肤一键切换**：统一以干净猫娘立绘为基底制作五帧面部表情差分，可在「挂件设置」中随时切换 **`💜 经典紫瞳`** 与 **`💗💛 粉金异瞳`**。
+- **五帧表情差分自动联动**：
   - **平时待机 (`idle`)**：主形象立绘，伴随柔和呼吸微动；
   - **AI 思考 / 生成中 (`eat`)**：自动识别会话运行态或发送按钮取消态，切换「吃大米」差分；
+  - **审查 / 确认 / 提问提示 (`wait`)**：实时结合 Language Server `waitingSteps`（支持跨项目工作区后台会话）与前端确认控件（`inline-permission-card`、`inline-card`、`ask-question`、`subagent-approve`、`Proceed` 审查卡等），自动切换专属鼓嘴 `><` 确认提醒差分并轻跳提示；
   - **戳一下 (`xd`)**：触发 `><` 差分、Q 弹按压回弹与离线合成音效（含爱心/星星粒子反馈）；
   - **对话完成 / 三连戳彩蛋 (`grin`)**：本轮输出完成或连续戳 3 下时触发「呲牙笑」差分与彩蛋音效。
+- **审查与确认实时提醒气泡（不可点击穿透 + 4 秒自动收起）**：
+  - 当任意项目触发命令/权限审批、方案审查确认、接管确认或问题询问时，立即播放专属铃音 `review_alert.wav` 并弹出琥珀高亮边框气泡，明确显示 **`【项目名】请求主人确认啦！`** 与具体待确认类型（`权限/命令待确认`、`审查需求待确认`、`提问等待主人回答` 等）；
+  - 为避免遮挡「提交 / 确认」按钮，提醒气泡**完全不可点击穿透**并在 **4 秒后自动收起**，猫娘保持 `wait` 差分直到主人点击「Allow / Proceed / Submit / 确认」后无缝切回对应的思考（`eat`）或待机（`idle`）状态（不会误触发回合结束播报）。
 - **左键三段式椭圆思考气泡**：
   1. **第 1 次左键点击形象**：弹出椭圆思考气泡，展示当前主模型 **5h / 每周剩余额度**、重置倒计时、**上下文占用**与 **已用 Token**（同时触发 `><` 差分与音效）；
   2. **第 2 次左键单击气泡**：切换展示猫娘随机台词（内置台词 + 用户自定义台词，支持实时变量占位符）；
@@ -32,8 +37,10 @@
   - **挂件设置支持全部个性化定制**：
     - 📏 **挂件大小**（`64px` ~ `180px`，默认 `112px`）与 👁 **透明度**（`35%` ~ `100%`）滑块实时预览；
     - 💭 **气泡大小** 按钮调节（`－` / `小` / `默认` / `大` / `超大` / `＋`，支持 `65%` ~ `160%` 实时缩放）；
-    - 🖼️ **自定义形象**（分别上传修改 `更改主形象` / `思考差分` / `戳一戳差分` / `彩蛋差分`，支持一键 `↺ 恢复默认`）；
+    - 🎨 **默认皮肤**：内置 **`💜 经典紫瞳`** 与 **`💗💛 粉金异瞳`** 两套统一基底五帧差分皮肤一键切换；
+    - 🖼️ **自定义形象**：分别上传修改 `更改主形象` / `思考差分` / `戳一戳差分` / `彩蛋差分` / `确认差分`，支持一键 `↺ 恢复默认`；
     - 💬 **自定义气泡对话**（输入框 + `+ 添加对话` 按钮，支持逐条删除与动态数据占位符）；
+    - ⚠️ **审查/确认提醒开关 & 确认提醒音效开关**；
     - 🔊 **戳一下声音**（内置 **Q 弹叮咚** / **软萌喵呜** / **小黄鸭** 离线合成 WAV + **选本地音频**，支持音量调节、静音与 60s 空闲挂起 + IME 输入法组字避让）；
     - 📍 **四分贴边停靠**：直接按住拖拽至窗口任意边缘自动贴边吸附（靠左自动水平翻转），或点击按钮快速停靠 `右下角` / `左下角` / `右上角` / `左上角`。
 
@@ -81,8 +88,8 @@
 </table>
 
 <div align="center">
-  <img src="./docs/screenshots/08-frames-palette.png" alt="四帧统一配色透明表情差分浅深主题对比" width="92%" /><br />
-  <sub><b>四帧统一配色透明表情差分对比</b>：待机主形象（idle）、AI 思考吃大米（eat）、戳一下反馈（xd）、完成/连戳彩蛋（grin）在浅色与深色主题下的表现</sub>
+  <img src="./docs/screenshots/08-frames-palette.png" alt="两套内置默认皮肤五帧表情差分浅深主题对比" width="92%" /><br />
+  <sub><b>两套内置默认皮肤 · 五帧统一基底表情差分对比</b>：经典紫瞳（<code>purple</code>）与粉金异瞳（<code>heterochromia</code>）各含待机（idle）、吃大米（eat）、呲牙笑（grin）、戳一下（xd）、确认提醒（wait）在浅色与深色主题下的表现</sub>
 </div>
 
 ---
@@ -113,7 +120,7 @@ cd antigravity-observer
 ```
 批处理脚本会自动执行以下全部操作：
 1. 关闭当前可能锁定 `app.asar` 的 Antigravity 进程（若正在运行）；
-2. 将 `plugin.json`、`sidecars/neko-cockpit/`、`assets/`（图标、4 帧立绘、7 个音效）、`skills/` 等资源同步到 `%USERPROFILE%\.gemini\config\plugins\gemini-neko-cockpit`（若您此前保留过 `hud_prefs.json` 个人配置，会自动无损保留）；
+2. 将 `plugin.json`、`sidecars/neko-cockpit/`、`assets/`（图标、2 套默认皮肤共 10 帧立绘、8 个音效）、`skills/` 等资源同步到 `%USERPROFILE%\.gemini\config\plugins\gemini-neko-cockpit`（若您此前保留过 `hud_prefs.json` 个人配置，会自动无损保留）；
 3. 校验并通过 `src/asar_patcher.js` 安全重写 `app.asar` 末尾注入块（不破坏原有汉化与主体代码）；
 4. 自动重新启动 Antigravity。
 
@@ -173,6 +180,7 @@ node setup.cjs --doctor
 | :--- | :--- |
 | **静默待机** | 右下角 `0px` 贴边显示 Gemini 娘主形象，带有微呼吸动画，无多余控件遮挡 |
 | **AI 开始思考 / 输出中** | 自动切换为统一配色的 **「吃大米」差分**，并记录本轮开始前的额度与 Token 基线 |
+| **审查需求 / 确认或提问** | 立即切换专属 **`wait` 确认差分**、播放 `review_alert.wav` 提示音，并弹出琥珀边框气泡显示 **【项目名】请求主人确认啦！**；点击确认后自动收起并回到 `eat` 或 `idle` 状态 |
 | **每次模型对话结束** | 自动弹出椭圆气泡播报 **本轮额度消耗、最新剩余与本轮新增 Token**（10 秒自动关闭），同时触发呲牙笑彩蛋 |
 | **左键点击猫娘（第 1 次）** | 播放音效、切换 `><` 差分与 Q 弹动效，并在椭圆思考气泡内展示 **模型额度 / 上下文 / Token** |
 | **左键点击气泡（第 2 次）** | 平滑淡入切换显示 **随机台词**（含您在设置中添加的自定义对话） |
@@ -230,14 +238,16 @@ git pull origin main
 
 ```text
 ├── assets/
-│   ├── frames/                      # 4 帧统一色调贴边透明 WebP 立绘 (idle / eat / grin / xd)
-│   ├── sounds/                      # 离线合成音效包 (boing / nya / duck / combo_chime)
+│   ├── frames/                      # 默认经典紫瞳 5 帧统一基底透明 WebP 立绘 (idle / eat / grin / xd / wait)
+│   ├── skins/
+│   │   └── heterochromia/           # 内置粉金异瞳 5 帧统一基底透明 WebP 立绘 (idle / eat / grin / xd / wait)
+│   ├── sounds/                      # 离线合成音效包 (boing / nya / duck / combo_chime / review_alert)
 │   └── logo.png                     # 插件图标 (256x256 RGBA)
 ├── docs/
 │   └── screenshots/                 # 运行效果截图 (01 ~ 08)
 ├── hud/
-│   ├── main_bridge.js               # Electron 主进程桥接、配置迁移持久化、自定义资源选择与 RPC 兜底
-│   └── preload_hud.js               # 渲染层注入：右下角 Gemini 猫娘挂件、椭圆气泡、右键详情卡与观察弹窗
+│   ├── main_bridge.js               # Electron 主进程桥接、配置迁移持久化、多项目待确认采集、自定义资源选择与 RPC 兜底
+│   └── preload_hud.js               # 渲染层注入：右下角 Gemini 猫娘挂件、确认提醒气泡、右键详情卡与观察弹窗
 ├── sidecars/neko-cockpit/
 │   ├── sidecar.json                 # Sidecar 清单 (AUX_PANE)
 │   ├── server.cjs                   # 本地观测 HTTP 服务 & Language Server / Transcript 引擎
@@ -246,7 +256,7 @@ git pull origin main
 │   └── SKILL.md                     # 对话内快捷调用 Antigravity Skill
 ├── src/
 │   └── asar_patcher.js              # ASAR 无损重写与 SHA-256 块校验器
-├── plugin.json                      # Antigravity 插件元信息 (v1.2.0)
+├── plugin.json                      # Antigravity 插件元信息 (v1.3.0)
 ├── setup.cjs                        # 安装 / 暂存 / 状态检查 / 自检 / 卸载主程序
 ├── 双击安装观察窗补丁.bat             # Windows 一键安装脚本
 └── 双击卸载观察窗补丁.bat             # Windows 一键卸载脚本

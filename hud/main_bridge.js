@@ -18,8 +18,10 @@
     const RUNTIME_PTR_PATH = path.join(PLUGIN_DIR, 'runtime_server.json');
     const DAEMON_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'daemon');
     const BRAIN_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
+    const PROJECTS_DIR = path.join(os.homedir(), '.gemini', 'config', 'projects');
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const FRAME_KEYS = ['idle', 'eat', 'grin', 'xd'];
+    const FRAME_KEYS = ['idle', 'eat', 'grin', 'xd', 'wait'];
+    const BUILTIN_SKINS = ['purple', 'heterochromia'];
 
     const DEFAULT_ANCHOR = {
       v: 2,
@@ -43,6 +45,9 @@
       completionEasterEgg: true,
       completionSound: false,
       turnCostBubble: true,
+      reviewAlertEnabled: true,
+      reviewAlertSound: true,
+      skin: 'purple',
       anchor: { ...DEFAULT_ANCHOR },
       patCount: 0,
       customDialogues: [],
@@ -50,7 +55,8 @@
         idle: '',
         eat: '',
         grin: '',
-        xd: ''
+        xd: '',
+        wait: ''
       }
     };
 
@@ -61,7 +67,8 @@
       'nya_release',
       'duck_press',
       'duck_release',
-      'combo_chime'
+      'combo_chime',
+      'review_alert'
     ];
 
     const AUDIO_MIME_MAP = {
@@ -120,7 +127,7 @@
     }
 
     function normalizeCustomFrames(raw) {
-      const out = { idle: '', eat: '', grin: '', xd: '' };
+      const out = { idle: '', eat: '', grin: '', xd: '', wait: '' };
       if (!raw || typeof raw !== 'object') return out;
       for (const k of FRAME_KEYS) {
         out[k] = typeof raw[k] === 'string' ? raw[k].trim() : '';
@@ -148,6 +155,9 @@
       merged.completionEasterEgg = merged.completionEasterEgg !== false;
       merged.completionSound = Boolean(merged.completionSound);
       merged.turnCostBubble = merged.turnCostBubble !== false;
+      merged.reviewAlertEnabled = merged.reviewAlertEnabled !== false;
+      merged.reviewAlertSound = merged.reviewAlertSound !== false;
+      merged.skin = BUILTIN_SKINS.includes(merged.skin) ? merged.skin : 'purple';
       merged.anchor = normalizeAnchor(merged.anchor, rawVer);
       const pats = Number(merged.patCount);
       merged.patCount = Number.isFinite(pats) && pats >= 0 ? Math.floor(pats) : 0;
@@ -207,12 +217,24 @@
     }
 
     function loadBootAssets(prefs) {
+      const builtinSkins = { purple: {}, heterochromia: {} };
+      for (const name of FRAME_KEYS) {
+        const purplePath = path.join(PLUGIN_DIR, 'assets', 'frames', `${name}.webp`);
+        const purpleUrl = readImageDataUrl(purplePath, 2 * 1024 * 1024);
+        if (purpleUrl) builtinSkins.purple[name] = purpleUrl;
+
+        const heteroPath = path.join(PLUGIN_DIR, 'assets', 'skins', 'heterochromia', `${name}.webp`);
+        const heteroUrl = readImageDataUrl(heteroPath, 2 * 1024 * 1024);
+        if (heteroUrl) builtinSkins.heterochromia[name] = heteroUrl;
+        else if (purpleUrl) builtinSkins.heterochromia[name] = purpleUrl;
+      }
+
+      const activeSkin = (prefs && BUILTIN_SKINS.includes(prefs.skin)) ? prefs.skin : 'purple';
       const defaultFrames = {};
       const frames = {};
       const customFrames = (prefs && prefs.customFrames) || {};
       for (const name of FRAME_KEYS) {
-        const defPath = path.join(PLUGIN_DIR, 'assets', 'frames', `${name}.webp`);
-        const defUrl = readImageDataUrl(defPath, 2 * 1024 * 1024);
+        const defUrl = builtinSkins[activeSkin][name] || builtinSkins.purple[name] || '';
         if (defUrl) defaultFrames[name] = defUrl;
 
         const customUrl = customFrames[name] ? readImageDataUrl(customFrames[name], 6 * 1024 * 1024) : '';
@@ -247,7 +269,7 @@
         }
       }
 
-      return { frames, defaultFrames, sounds, customAudio };
+      return { frames, defaultFrames, builtinSkins, sounds, customAudio };
     }
 
     function isPidAlive(pid) {
@@ -468,16 +490,229 @@
 
     let fallbackQuotaCache = { data: null, fetchedAt: 0 };
     let fallbackPlanCache = { data: null, fetchedAt: 0 };
+    let fallbackModelMapCache = { map: new Map(), fetchedAt: 0 };
     const fallbackMetaCache = new Map();
+
+    async function getFallbackModelLabelMap(forceRefresh = false) {
+      const now = Date.now();
+      if (!forceRefresh && fallbackModelMapCache.map.size > 0 && now - fallbackModelMapCache.fetchedAt < 300000) {
+        return fallbackModelMapCache.map;
+      }
+      try {
+        const mcRes = await callLsFallback('GetCascadeModelConfigData', {});
+        const configs = mcRes && Array.isArray(mcRes.clientModelConfigs) ? mcRes.clientModelConfigs : [];
+        if (configs.length > 0) {
+          const nextMap = new Map();
+          for (const cfg of configs) {
+            if (!cfg || !cfg.label) continue;
+            const label = String(cfg.label).trim();
+            const mId = cfg.modelOrAlias && (cfg.modelOrAlias.model || cfg.modelOrAlias.alias);
+            if (mId) nextMap.set(String(mId).trim(), label);
+            const slug = label.toLowerCase().replace(/\s*\([^)]*\)\s*/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            if (slug && !nextMap.has(slug)) nextMap.set(slug, label);
+          }
+          fallbackModelMapCache = { map: nextMap, fetchedAt: now };
+        }
+      } catch {}
+      return fallbackModelMapCache.map;
+    }
+
+    // --- Project registry & live multi-project waitingSteps scanner ---
+    let cachedProjectsRegistry = new Map();
+    let cachedProjectsScan = { dirMtimeMs: -1, checkedAt: 0 };
+    let cachedWaitingScan = { fetchedAt: 0, summaries: null, waitingProjects: [] };
+
+    function extractLabelFromWorkspaceUri(uri) {
+      if (!uri || typeof uri !== 'string') return '';
+      let p = uri.trim();
+      if (!p) return '';
+      try {
+        if (/^file:\/\//i.test(p)) {
+          const u = new URL(p);
+          p = decodeURIComponent(u.pathname || '');
+          if (/^\/[a-zA-Z]:/.test(p)) p = p.slice(1);
+        } else {
+          p = decodeURIComponent(p);
+        }
+      } catch {}
+      p = p.replace(/[\\/]+$/, '');
+      if (!p) return '';
+      const base = path.basename(p);
+      return base || p;
+    }
+
+    function loadProjectsRegistry() {
+      const now = Date.now();
+      if (now - cachedProjectsScan.checkedAt < 2000 && cachedProjectsRegistry.size > 0) {
+        return cachedProjectsRegistry;
+      }
+      cachedProjectsScan.checkedAt = now;
+      try {
+        if (!fs.existsSync(PROJECTS_DIR)) return cachedProjectsRegistry;
+        const dirStat = fs.statSync(PROJECTS_DIR);
+        if (dirStat.mtimeMs === cachedProjectsScan.dirMtimeMs && cachedProjectsRegistry.size > 0) {
+          return cachedProjectsRegistry;
+        }
+        cachedProjectsScan.dirMtimeMs = dirStat.mtimeMs;
+        const next = new Map();
+        const files = fs.readdirSync(PROJECTS_DIR);
+        for (const f of files) {
+          if (!f.toLowerCase().endsWith('.json')) continue;
+          const projId = f.slice(0, -5).toLowerCase();
+          if (!UUID_RE.test(projId)) continue;
+          const raw = readJsonSafe(path.join(PROJECTS_DIR, f));
+          if (!raw || typeof raw !== 'object') continue;
+          let fallbackLabel = '';
+          const resources = raw.projectResources && Array.isArray(raw.projectResources.resources)
+            ? raw.projectResources.resources
+            : [];
+          for (const r of resources) {
+            if (!r || typeof r !== 'object') continue;
+            fallbackLabel = extractLabelFromWorkspaceUri(r.folderUri || (r.gitFolder && r.gitFolder.folderUri) || '');
+            if (fallbackLabel) break;
+          }
+          const name = (typeof raw.name === 'string' && raw.name.trim()) || fallbackLabel || '';
+          next.set(projId, { id: projId, name });
+        }
+        cachedProjectsRegistry = next;
+      } catch {}
+      return cachedProjectsRegistry;
+    }
+
+    function collectTrajectoryWorkspaceUris(summary) {
+      const uris = [];
+      if (!summary || typeof summary !== 'object') return uris;
+      if (Array.isArray(summary.workspaces)) {
+        for (const w of summary.workspaces) {
+          if (w && typeof w.workspaceFolderAbsoluteUri === 'string') uris.push(w.workspaceFolderAbsoluteUri);
+        }
+      }
+      const tm = summary.trajectoryMetadata;
+      if (tm && typeof tm === 'object') {
+        if (Array.isArray(tm.workspaceUris)) {
+          for (const u of tm.workspaceUris) {
+            if (typeof u === 'string') uris.push(u);
+          }
+        }
+        if (Array.isArray(tm.workspaces)) {
+          for (const w of tm.workspaces) {
+            if (w && typeof w.workspaceFolderAbsoluteUri === 'string') uris.push(w.workspaceFolderAbsoluteUri);
+          }
+        }
+      }
+      return uris;
+    }
+
+    function resolveProjectName(projectId, workspaceUris, fallbackTitle) {
+      const cleanProj = typeof projectId === 'string' ? projectId.trim().toLowerCase() : '';
+      if (cleanProj) {
+        const reg = loadProjectsRegistry();
+        const hit = reg.get(cleanProj);
+        if (hit && hit.name) return hit.name;
+      }
+      if (Array.isArray(workspaceUris)) {
+        for (const u of workspaceUris) {
+          const lbl = extractLabelFromWorkspaceUri(u);
+          if (lbl) return lbl;
+        }
+      }
+      const fb = typeof fallbackTitle === 'string' ? fallbackTitle.trim() : '';
+      return fb || '当前项目';
+    }
+
+    function classifyWaitingStep(ws) {
+      const stepObj = (ws && ws.step && typeof ws.step === 'object') ? ws.step : {};
+      if (stepObj.case === 'askQuestion' || stepObj.askQuestion) {
+        return { kind: 'question', label: '提问等待主人回答' };
+      }
+      if (stepObj.case === 'runCommand' || stepObj.runCommand) {
+        return { kind: 'command', label: '终端命令待确认' };
+      }
+      if (stepObj.case === 'openBrowserUrl' || stepObj.openBrowserUrl) {
+        return { kind: 'browser', label: '打开网页待确认' };
+      }
+      const ri =
+        stepObj.requestedInteraction ||
+        (stepObj.value && stepObj.value.requestedInteraction) ||
+        (ws && ws.requestedInteraction);
+      const inter = (ri && ri.interaction) || ri;
+      if (inter && (inter.case === 'permission' || inter.permission)) {
+        return { kind: 'permission', label: '权限请求待确认' };
+      }
+      if (ri || stepObj.case === 'requestedInteraction') {
+        return { kind: 'review', label: '审查需求待确认' };
+      }
+      return { kind: 'review', label: '审查需求待确认' };
+    }
+
+    async function fetchLiveWaitingProjects(forceRefresh = false) {
+      const now = Date.now();
+      if (!forceRefresh && cachedWaitingScan.summaries && now - cachedWaitingScan.fetchedAt < 1200) {
+        return { summaries: cachedWaitingScan.summaries, waitingProjects: cachedWaitingScan.waitingProjects };
+      }
+      const trajRes = await callLsFallback('GetAllCascadeTrajectories', { excludeSubtrajectories: true });
+      const summaries = trajRes && trajRes.trajectorySummaries && typeof trajRes.trajectorySummaries === 'object'
+        ? trajRes.trajectorySummaries
+        : null;
+      if (!summaries) {
+        return { summaries: cachedWaitingScan.summaries || null, waitingProjects: [] };
+      }
+
+      const waitingProjects = [];
+      for (const [rawId, summary] of Object.entries(summaries)) {
+        const cleanId = String(rawId || '').trim().toLowerCase();
+        if (!UUID_RE.test(cleanId) || !summary || typeof summary !== 'object') continue;
+        if (summary.killed || summary.latestExecutorTerminationReason === 'EXECUTOR_TERMINATION_REASON_USER_CANCELED') {
+          continue;
+        }
+        const st = String(summary.status || '');
+        const activeStatus =
+          st === 'CASCADE_RUN_STATUS_RUNNING' ||
+          st === 'CASCADE_RUN_STATUS_BUSY' ||
+          Boolean(summary.hasActiveChildren);
+        if (!activeStatus || !Array.isArray(summary.waitingSteps) || summary.waitingSteps.length === 0) {
+          continue;
+        }
+        const ws0 = summary.waitingSteps[0] || {};
+        const stepIndex = Number.isFinite(Number(ws0.stepIndex)) ? Number(ws0.stepIndex) : 0;
+        const { kind, label } = classifyWaitingStep(ws0);
+        const tm = summary.trajectoryMetadata && typeof summary.trajectoryMetadata === 'object'
+          ? summary.trajectoryMetadata
+          : {};
+        const projectId = typeof tm.projectId === 'string' && UUID_RE.test(tm.projectId.trim())
+          ? tm.projectId.trim().toLowerCase()
+          : '';
+        const wsUris = collectTrajectoryWorkspaceUris(summary);
+        const convTitle = (
+          (summary.annotations && typeof summary.annotations.title === 'string' && summary.annotations.title.trim()) ||
+          (typeof summary.summary === 'string' && summary.summary.trim()) ||
+          ''
+        );
+        const projectName = resolveProjectName(projectId, wsUris, convTitle);
+        const updatedAtMs = summary.lastModifiedTime ? (Date.parse(summary.lastModifiedTime) || now) : now;
+        waitingProjects.push({
+          key: `${cleanId}:${stepIndex}`,
+          convId: cleanId,
+          projectId,
+          projectName,
+          convTitle,
+          kind,
+          label,
+          stepIndex,
+          updatedAtMs
+        });
+      }
+      waitingProjects.sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0));
+      cachedWaitingScan = { fetchedAt: now, summaries, waitingProjects };
+      return { summaries, waitingProjects };
+    }
 
     async function getFallbackSummary(reqConvId, forceRefresh) {
       const now = Date.now();
       const convId = (reqConvId && UUID_RE.test(String(reqConvId).trim())) ? String(reqConvId).trim().toLowerCase() : '';
-      let summaries = {};
-      if (convId) {
-        const trajRes = await callLsFallback('GetAllCascadeTrajectories', { excludeSubtrajectories: true });
-        summaries = trajRes && trajRes.trajectorySummaries ? trajRes.trajectorySummaries : {};
-      }
+      const liveScan = await fetchLiveWaitingProjects(Boolean(forceRefresh));
+      const summaries = liveScan.summaries || {};
+      const waitingProjects = Array.isArray(liveScan.waitingProjects) ? liveScan.waitingProjects : [];
 
       if (forceRefresh || now - fallbackQuotaCache.fetchedAt > 20000 || !fallbackQuotaCache.data) {
         const qRes = await callLsFallback('RetrieveUserQuotaSummary', { metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' } });
@@ -536,22 +771,31 @@
         const gmCached = fallbackMetaCache.get(convId);
         let gm = gmCached && (now - gmCached.ts < 3000) && gmCached.steps === parsed.steps ? gmCached.data : null;
         if (!gm) {
-          const gmRes = await callLsFallback('GetCascadeTrajectoryGeneratorMetadata', {
-            cascadeId: convId,
-            generatorMetadataOffset: 0,
-            includeMessages: false
-          });
+          const [gmRes, modelMap] = await Promise.all([
+            callLsFallback('GetCascadeTrajectoryGeneratorMetadata', {
+              cascadeId: convId,
+              generatorMetadataOffset: 0,
+              includeMessages: false
+            }),
+            getFallbackModelLabelMap(Boolean(forceRefresh))
+          ]);
           const list = gmRes && Array.isArray(gmRes.generatorMetadata) ? gmRes.generatorMetadata : [];
           let maxContextTokens = 0;
           let estimatedTokensUsed = 0;
           let modelLabel = '';
           let ttftMs = 0;
           let tokPerSec = 0;
+          let fallbackSpd = 0;
           let tokenBreakdown = null;
           for (let i = list.length - 1; i >= 0; i--) {
-            const cm = list[i] && list[i].chatModel;
+            const item = list[i];
+            const cm = item && item.chatModel;
             if (!cm) continue;
-            if (!modelLabel && cm.responseModel) modelLabel = cm.responseModel;
+            if (!modelLabel) {
+              const mEnum = (item.plannerConfig && item.plannerConfig.requestedModel && (item.plannerConfig.requestedModel.model || item.plannerConfig.requestedModel.alias)) || cm.model || '';
+              const rawLbl = cm.modelDisplayName || (item.plannerConfig && item.plannerConfig.modelName) || cm.responseModel || '';
+              modelLabel = (mEnum && modelMap.get(String(mEnum))) || (rawLbl && modelMap.get(String(rawLbl).toLowerCase())) || rawLbl || mEnum || '';
+            }
             const cwm = cm.chatStartMetadata && cm.chatStartMetadata.contextWindowMetadata;
             if (cwm) {
               if (!maxContextTokens && Number(cwm.maxContextTokens) > 0) maxContextTokens = Number(cwm.maxContextTokens);
@@ -572,10 +816,17 @@
             }
             const sm = parseDurationMs(cm.streamingDuration);
             const ot = Number(cm.usage && (cm.usage.responseOutputTokens || cm.usage.outputTokens)) || 0;
-            if (!tokPerSec && sm >= 80 && ot > 0) tokPerSec = Math.round((ot / (sm / 1000)) * 10) / 10;
+            if (sm > 0 && ot > 0) {
+              const spd = Math.round((ot / (sm / 1000)) * 10) / 10;
+              if (spd <= 1500) {
+                if (!tokPerSec && sm >= 450) tokPerSec = spd;
+                else if (!fallbackSpd && sm >= 150) fallbackSpd = spd;
+              }
+            }
             if (!ttftMs) ttftMs = parseDurationMs(cm.timeToFirstToken);
-            if (maxContextTokens > 0 && tokPerSec > 0) break;
+            if (maxContextTokens > 0 && tokPerSec > 0 && modelLabel) break;
           }
+          if (!tokPerSec && fallbackSpd) tokPerSec = fallbackSpd;
           gm = { maxContextTokens, estimatedTokensUsed, modelLabel, ttftMs, tokPerSec, tokenBreakdown };
           fallbackMetaCache.set(convId, { ts: now, steps: parsed.steps, data: gm });
         }
@@ -583,11 +834,19 @@
         const ctxTok = Math.max(parsed.contextTokens, gm.estimatedTokensUsed || 0);
         const ctxMax = gm.maxContextTokens || 0;
         const zeroConvPct = (parsed.steps === 0 && ctxTok === 0) ? 0 : null;
+        const waitHit = waitingProjects.find((w) => w.convId === convId) || null;
+        const trajMeta = traj && traj.trajectoryMetadata && typeof traj.trajectoryMetadata === 'object' ? traj.trajectoryMetadata : {};
+        const projId = typeof trajMeta.projectId === 'string' ? trajMeta.projectId.trim().toLowerCase() : '';
+        const wsUris = collectTrajectoryWorkspaceUris(traj);
+        const convTitle = (traj && ((traj.annotations && traj.annotations.title) || traj.summary)) || (parsed.steps > 0 ? `对话 ${convId.slice(0, 8)}` : '新对话');
+        const projectName = (waitHit && waitHit.projectName) || ((projId || wsUris.length > 0) ? resolveProjectName(projId, wsUris, convTitle) : '');
         conv = {
           id: convId,
-          title: (traj && traj.summary) || (parsed.steps > 0 ? `对话 ${convId.slice(0, 8)}` : '新对话'),
-          isThinking: parsed.isThinking,
-          waitState: '',
+          title: convTitle,
+          projectName,
+          isThinking: waitHit ? false : parsed.isThinking,
+          waitState: waitHit ? waitHit.kind : '',
+          waitToolName: '',
           modelLabel: gm.modelLabel || '',
           rounds: parsed.rounds,
           steps: parsed.steps,
@@ -616,6 +875,7 @@
         ts: now,
         fallback: true,
         conv,
+        waitingProjects,
         quota: fallbackQuotaCache.data,
         plan: fallbackPlanCache.data || { planName: '' }
       };
@@ -629,6 +889,7 @@
         prefs,
         frames: assets.frames,
         defaultFrames: assets.defaultFrames,
+        builtinSkins: assets.builtinSkins,
         sounds: assets.sounds,
         customAudio: assets.customAudio,
         sidecarInfo: findSidecarServerInfo()
@@ -684,7 +945,7 @@
         const BrowserWindow = electron && electron.BrowserWindow;
         if (!dialog) return { ok: false, error: 'Dialog unavailable' };
         const win = (BrowserWindow && event && event.sender) ? BrowserWindow.fromWebContents(event.sender) : null;
-        const labelMap = { idle: '主形象', eat: '思考(吃大米)差分', xd: '戳一下(><)差分', grin: '彩蛋(呲牙笑)差分' };
+        const labelMap = { idle: '主形象', eat: '思考(吃大米)差分', xd: '戳一下(><)差分', grin: '彩蛋(呲牙笑)差分', wait: '确认/审查差分' };
         const res = await dialog.showOpenDialog(win || undefined, {
           title: `选择自定义${labelMap[key] || '形象'}图片 (支持 PNG/WebP/JPG/GIF)`,
           filters: [
@@ -737,7 +998,7 @@
         }
         const prefs = savePrefs({ customFrames: nextCustomFrames });
         const assets = loadBootAssets(prefs);
-        return { ok: true, prefs, frames: assets.frames };
+        return { ok: true, prefs, frames: assets.frames, defaultFrames: assets.defaultFrames, builtinSkins: assets.builtinSkins };
       } catch (err) {
         return { ok: false, error: err.message || '恢复默认形象失败' };
       }
@@ -774,12 +1035,45 @@
             timeoutMs: 2200
           });
         }
-        const [res, qRes] = await Promise.all([summaryPromise, quotaPromise]);
+        const liveWaitingPromise = fetchLiveWaitingProjects(Boolean(forceRefresh));
+        const [res, qRes, liveWait] = await Promise.all([summaryPromise, quotaPromise, liveWaitingPromise]);
         if (res.ok && res.data) {
           if (qRes && qRes.ok && qRes.data && qRes.data.quota) {
             res.data.quota = qRes.data.quota;
           }
           if (!normalizedConvId) res.data.conv = null;
+
+          // Merge live Language Server waitingProjects (authoritative across all projects) with Sidecar list
+          const sidecarWait = Array.isArray(res.data.waitingProjects) ? res.data.waitingProjects : [];
+          const liveList = liveWait && Array.isArray(liveWait.waitingProjects) ? liveWait.waitingProjects : [];
+          const baseList = liveWait && liveWait.summaries ? liveList : sidecarWait;
+          const mergedMap = new Map();
+          for (const item of baseList) {
+            if (item && item.convId) mergedMap.set(item.convId, item);
+          }
+          if (liveWait && liveWait.summaries) {
+            for (const item of sidecarWait) {
+              if (item && item.convId && !mergedMap.has(item.convId) && !liveWait.summaries[item.convId]) {
+                mergedMap.set(item.convId, item);
+              }
+            }
+          }
+          res.data.waitingProjects = Array.from(mergedMap.values());
+
+          if (res.data.conv && normalizedConvId) {
+            const matchedWait = mergedMap.get(normalizedConvId);
+            if (matchedWait && !res.data.conv.waitState) {
+              res.data.conv.waitState = matchedWait.kind || 'review';
+            }
+            if (!res.data.conv.projectName) {
+              const traj = liveWait && liveWait.summaries ? liveWait.summaries[normalizedConvId] : null;
+              const tm = traj && traj.trajectoryMetadata && typeof traj.trajectoryMetadata === 'object' ? traj.trajectoryMetadata : {};
+              const projId = typeof tm.projectId === 'string' ? tm.projectId : '';
+              const wsUris = collectTrajectoryWorkspaceUris(traj);
+              res.data.conv.projectName = (matchedWait && matchedWait.projectName) ||
+                ((projId || wsUris.length > 0) ? resolveProjectName(projId, wsUris, res.data.conv.title) : '');
+            }
+          }
           return res.data;
         }
       }

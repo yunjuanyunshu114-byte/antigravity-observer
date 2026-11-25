@@ -1174,6 +1174,29 @@ function classifyToolCallsWait(toolCalls) {
     : { kind: '', delayMs: 0, toolName: '' };
 }
 
+function classifyLsWaitingStep(ws) {
+  const stepObj = ws && ws.step && typeof ws.step === 'object' ? ws.step : {};
+  const stepIndex = Number.isFinite(Number(ws && ws.stepIndex)) ? Number(ws.stepIndex) : 0;
+  if (stepObj.case === 'askQuestion' || stepObj.askQuestion) {
+    return { stepIndex, kind: 'question', label: '提问等待主人回答', toolName: 'ask_question' };
+  }
+  if (stepObj.case === 'runCommand' || stepObj.runCommand) {
+    return { stepIndex, kind: 'command', label: '终端命令待确认', toolName: 'run_command' };
+  }
+  if (stepObj.case === 'openBrowserUrl' || stepObj.openBrowserUrl) {
+    return { stepIndex, kind: 'browser', label: '打开网页待确认', toolName: 'open_browser_url' };
+  }
+  const ri =
+    stepObj.requestedInteraction ||
+    (stepObj.value && stepObj.value.requestedInteraction) ||
+    (ws && ws.requestedInteraction);
+  const inter = (ri && ri.interaction) || ri;
+  if (inter && (inter.case === 'permission' || inter.permission)) {
+    return { stepIndex, kind: 'permission', label: '权限请求待确认', toolName: 'permission' };
+  }
+  return { stepIndex, kind: 'review', label: '审查需求待确认', toolName: 'review' };
+}
+
 function getEntryWaitState(entry, nowMs = Date.now()) {
   if (!entry || entry.lastStepStatus === 'CANCELED') return '';
   if (entry.lastStepType !== 'PLANNER_RESPONSE' || !entry.lastStepHasToolCalls) return '';
@@ -3464,7 +3487,13 @@ class AgyCockpitServer {
       let hasUnsyncedMainConv = false;
       for (const [cid, e] of this.convCache.entries()) {
         if (!e || e.isSubagent) continue;
-        if ((!this.lsTrajectoryMeta.has(cid) && this.lsCheckedMissingConvs.get(cid) !== (e.mtimeMs || 0)) || isEntryThinking(e, now) || getEntryWaitState(e, now)) {
+        const m = this.lsTrajectoryMeta.get(cid);
+        if (
+          (!m && this.lsCheckedMissingConvs.get(cid) !== (e.mtimeMs || 0)) ||
+          (m && Array.isArray(m.waitingSteps) && m.waitingSteps.length > 0) ||
+          isEntryThinking(e, now) ||
+          getEntryWaitState(e, now)
+        ) {
           hasUnsyncedMainConv = true;
           break;
         }
@@ -3541,6 +3570,23 @@ class AgyCockpitServer {
             summary.annotations && typeof summary.annotations.title === 'string'
               ? summary.annotations.title.trim()
               : '';
+          const st = typeof summary.status === 'string' ? summary.status : '';
+          const isActiveWaitSummary =
+            !summary.killed &&
+            summary.latestExecutorTerminationReason !== 'EXECUTOR_TERMINATION_REASON_USER_CANCELED' &&
+            Array.isArray(summary.waitingSteps) &&
+            summary.waitingSteps.length > 0 &&
+            (st === 'CASCADE_RUN_STATUS_RUNNING' ||
+              st === 'CASCADE_RUN_STATUS_BUSY' ||
+              Boolean(summary.hasActiveChildren));
+          const waitingSteps = isActiveWaitSummary
+            ? summary.waitingSteps.map((ws) => classifyLsWaitingStep(ws))
+            : [];
+          const prevMeta = this.lsTrajectoryMeta.get(cleanId);
+          const prevWaitLen = prevMeta && Array.isArray(prevMeta.waitingSteps) ? prevMeta.waitingSteps.length : 0;
+          if (prevWaitLen !== waitingSteps.length || (prevWaitLen > 0 && waitingSteps[0].stepIndex !== prevMeta.waitingSteps[0].stepIndex)) {
+            anyChanged = true;
+          }
 
           this.lsTrajectoryMeta.set(cleanId, {
             projectId: officialProjectId,
@@ -3548,7 +3594,9 @@ class AgyCockpitServer {
             summary: lsSummary,
             annotTitle,
             stepCount: Number(summary.stepCount) || 0,
-            status: typeof summary.status === 'string' ? summary.status : ''
+            status: st,
+            waitingSteps,
+            lastModifiedMs: summary.lastModifiedTime ? (Date.parse(summary.lastModifiedTime) || 0) : 0
           });
           this.lsCheckedMissingConvs.delete(cleanId);
 
@@ -4902,7 +4950,10 @@ class AgyCockpitServer {
       let latestEstimatedTokens = 0;
       let latestTokenBreakdown = null;
       let latestTtftMs = 0;
-      const speedSamples = [];
+      let speedTokSum = 0;
+      let speedMsSum = 0;
+      let speedCount = 0;
+      let fallbackSpd = 0;
       for (let i = list.length - 1; i >= 0; i--) {
         const item = list[i];
         if (!item) continue;
@@ -4945,15 +4996,24 @@ class AgyCockpitServer {
           const ttft = parseDurationMs(cm.timeToFirstToken);
           if (!latestTtftMs && ttft > 0) latestTtftMs = ttft;
           const outTok = Number(cm.usage && (cm.usage.responseOutputTokens || cm.usage.outputTokens)) || 0;
-          if (streamMs >= 80 && outTok > 0 && speedSamples.length < 3) {
-            speedSamples.push(outTok / (streamMs / 1000));
+          if (streamMs > 0 && outTok > 0) {
+            const instSpd = outTok / (streamMs / 1000);
+            if (instSpd <= 1500) {
+              if (streamMs >= 450 && speedCount < 3) {
+                speedTokSum += outTok;
+                speedMsSum += streamMs;
+                speedCount += 1;
+              } else if (!fallbackSpd && streamMs >= 150) {
+                fallbackSpd = Math.round(instSpd * 10) / 10;
+              }
+            }
           }
         }
         if (!foundEnum && !foundLabel && ((mEnum && mEnum !== 'MODEL_UNSPECIFIED') || mLabel)) {
           foundEnum = mEnum && mEnum !== 'MODEL_UNSPECIFIED' ? mEnum : '';
           foundLabel = mLabel;
         }
-        if (foundEnum && latestMaxContextTokens > 0 && speedSamples.length >= 2) {
+        if (foundEnum && latestMaxContextTokens > 0 && speedCount >= 2) {
           break;
         }
       }
@@ -4967,9 +5027,9 @@ class AgyCockpitServer {
           foundLabel = catalogHit.label;
         }
       }
-      const avgTokPerSec = speedSamples.length > 0
-        ? Math.round((speedSamples.reduce((a, b) => a + b, 0) / speedSamples.length) * 10) / 10
-        : 0;
+      const avgTokPerSec = speedMsSum > 0
+        ? Math.round((speedTokSum / (speedMsSum / 1000)) * 10) / 10
+        : fallbackSpd;
       const prevGm = this.genMetaCache.get(cleanId);
       const gmRecord = {
         maxContextTokens: latestMaxContextTokens || (prevGm ? prevGm.maxContextTokens : 0),
@@ -5992,8 +6052,14 @@ class AgyCockpitServer {
   }
 
   resolveSubagentsState(entry, nowMs = Date.now()) {
-    let waitState = getEntryWaitState(entry, nowMs);
-    let waitToolName = waitState ? (entry.lastStepWaitToolName || '') : '';
+    const lsMeta = this.lsTrajectoryMeta.get(entry.id);
+    const lsWait = lsMeta && Array.isArray(lsMeta.waitingSteps) && lsMeta.waitingSteps.length > 0
+      ? lsMeta.waitingSteps[0]
+      : null;
+    let waitState = lsWait ? lsWait.kind : getEntryWaitState(entry, nowMs);
+    let waitToolName = lsWait
+      ? (lsWait.toolName || lsWait.kind)
+      : (waitState ? (entry.lastStepWaitToolName || '') : '');
     let isThinking = !waitState && isEntryThinking(entry, nowMs);
     const subagents = [];
     const seen = new Set();
@@ -6003,8 +6069,14 @@ class AgyCockpitServer {
       seen.add(childId);
       const child = this.convCache.get(childId);
       if (!child) continue;
-      const cw = getEntryWaitState(child, nowMs);
-      const cwTool = cw ? (child.lastStepWaitToolName || '') : '';
+      const childLsMeta = this.lsTrajectoryMeta.get(child.id);
+      const childLsWait = childLsMeta && Array.isArray(childLsMeta.waitingSteps) && childLsMeta.waitingSteps.length > 0
+        ? childLsMeta.waitingSteps[0]
+        : null;
+      const cw = childLsWait ? childLsWait.kind : getEntryWaitState(child, nowMs);
+      const cwTool = childLsWait
+        ? (childLsWait.toolName || childLsWait.kind)
+        : (cw ? (child.lastStepWaitToolName || '') : '');
       const ct = !cw && isEntryThinking(child, nowMs);
       const fallback = (child.firstPrompt || child.lastPrompt || '').split('\n')[0].trim().slice(0, 80);
       const title =
@@ -6922,6 +6994,8 @@ class AgyCockpitServer {
     if (req.method === 'GET' && pathname === '/api/hud-summary') {
       if (!this.trajectoriesInitialSyncDone) {
         await this.syncTrajectoriesFromLanguageServer(false);
+      } else {
+        void this.syncTrajectoriesFromLanguageServer(query.refresh === '1');
       }
       void this.refreshQuotaSummary({ maxAgeMs: query.refresh === '1' ? 4000 : 20000, forceRemote: query.refresh === '1' });
       void this.refreshUserPlanAsync();
@@ -6978,15 +7052,42 @@ class AgyCockpitServer {
         void this.resolveConversationModelAsync(activeCard.id, query.refresh === '1');
       }
       const gm = activeCard ? (this.genMetaCache.get(activeCard.id) || null) : null;
+      const waitingProjects = [];
+      for (const [cid, meta] of this.lsTrajectoryMeta.entries()) {
+        if (!meta || !Array.isArray(meta.waitingSteps) || meta.waitingSteps.length === 0) continue;
+        const ws0 = meta.waitingSteps[0];
+        const proj = meta.projectId ? this.projectsRegistry.get(meta.projectId) : null;
+        const projName =
+          (proj && proj.name) ||
+          (meta.workspacePath ? getWorkspaceLabel(meta.workspacePath) : '') ||
+          meta.annotTitle ||
+          meta.summary ||
+          '当前项目';
+        waitingProjects.push({
+          key: `${cid}:${ws0.stepIndex}`,
+          convId: cid,
+          projectId: meta.projectId || '',
+          projectName: projName,
+          convTitle: meta.annotTitle || meta.summary || '',
+          kind: ws0.kind || 'review',
+          label: ws0.label || '审查需求待确认',
+          stepIndex: ws0.stepIndex,
+          updatedAtMs: meta.lastModifiedMs || 0
+        });
+      }
+      waitingProjects.sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0));
+
       sendJson(res, 200, {
         ok: true,
         ts: Date.now(),
         port: this.port,
         strict: strictMode,
         requestedConvId: reqConvId || '',
+        waitingProjects,
         conv: activeCard ? {
           id: activeCard.id,
           title: activeCard.title,
+          projectName: activeCard.workspaceName || '',
           isThinking: activeCard.isThinking,
           waitState: activeCard.waitState,
           waitToolName: activeCard.waitToolName,

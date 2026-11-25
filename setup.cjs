@@ -135,6 +135,22 @@ function installSidecarPlugin() {
       }
     }
   }
+  const skinsSrcDir = path.join(REPO_ROOT, 'assets', 'skins');
+  const skinsDestDir = path.join(ASSETS_DEST_DIR, 'skins');
+  if (fs.existsSync(skinsSrcDir)) {
+    fs.mkdirSync(skinsDestDir, { recursive: true });
+    for (const skinName of fs.readdirSync(skinsSrcDir)) {
+      const srcSub = path.join(skinsSrcDir, skinName);
+      if (!fs.statSync(srcSub).isDirectory()) continue;
+      const destSub = path.join(skinsDestDir, skinName);
+      fs.mkdirSync(destSub, { recursive: true });
+      for (const f of fs.readdirSync(srcSub)) {
+        if (/\.(webp|png)$/i.test(f)) {
+          fs.copyFileSync(path.join(srcSub, f), path.join(destSub, f));
+        }
+      }
+    }
+  }
   const soundsSrcDir = path.join(REPO_ROOT, 'assets', 'sounds');
   const soundsDestDir = path.join(ASSETS_DEST_DIR, 'sounds');
   if (fs.existsSync(soundsSrcDir)) {
@@ -310,8 +326,15 @@ function checkStatus(resourcesDir) {
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'eat.webp')) &&
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'xd.webp')) &&
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'grin.webp')) &&
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'wait.webp')) &&
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'idle.webp')) &&
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'eat.webp')) &&
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'xd.webp')) &&
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'grin.webp')) &&
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'wait.webp')) &&
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_press.wav')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_release.wav'));
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_release.wav')) &&
+    fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'review_alert.wav'));
   const skillOk = fs.existsSync(path.join(SKILL_DEST_DIR, 'SKILL.md'));
   const asarStatus = checkAsarStatus(resourcesDir);
 
@@ -345,7 +368,11 @@ async function runDoctor(args, resourcesDir) {
         fs.existsSync(path.join(SIDECAR_DEST_DIR, 'server.cjs')) &&
         fs.existsSync(path.join(ASSETS_DEST_DIR, 'logo.png')) &&
         fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'idle.webp')) &&
-        fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_release.wav'))
+        fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'wait.webp')) &&
+        fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'idle.webp')) &&
+        fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'wait.webp')) &&
+        fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_release.wav')) &&
+        fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'review_alert.wav'))
           ? 'pass'
           : 'fail',
       detail: `Plugin dir: ${PLUGIN_DEST_DIR}`

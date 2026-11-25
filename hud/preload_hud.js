@@ -157,6 +157,29 @@
   box-sizing: border-box;
   -webkit-app-region: no-drag;
 }
+#${IDS.petRoot},
+#${IDS.petRoot}:focus,
+#${IDS.petRoot}:focus-visible,
+#${IDS.petRoot}:focus-within,
+#${IDS.petRoot} *,
+#${IDS.petRoot} *:focus,
+#${IDS.petRoot} *:focus-visible,
+#${IDS.petRoot} *:focus-within {
+  outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-color: transparent !important;
+  -webkit-focus-ring-color: transparent !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+#${IDS.petRoot} .gn-stage,
+#${IDS.petRoot} .gn-avatar-btn,
+#${IDS.petRoot} .gn-avatar-btn:focus,
+#${IDS.petRoot} .gn-avatar-btn:focus-visible,
+#${IDS.petRoot} .gn-frame {
+  border: 0 !important;
+  box-shadow: none !important;
+}
 #${IDS.petRoot} .gn-stage {
   position: relative;
   pointer-events: auto;
@@ -229,6 +252,9 @@
 #${IDS.petRoot}[data-pose="grin"] .gn-avatar-anim {
   animation: gnNekoGrin 0.55s ease-in-out infinite;
 }
+#${IDS.petRoot}[data-pose="wait"] .gn-avatar-anim {
+  animation: gnNekoWait 0.9s ease-in-out infinite;
+}
 @keyframes gnNekoFloat {
   0%, 100% { transform: translateY(0px); }
   50% { transform: translateY(-2.5px); }
@@ -246,6 +272,12 @@
 @keyframes gnNekoGrin {
   0%, 100% { transform: translateY(0px) rotate(-1deg); }
   50% { transform: translateY(-3px) rotate(1.5deg); }
+}
+@keyframes gnNekoWait {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  25% { transform: translateY(-3.5px) rotate(-1.6deg); }
+  50% { transform: translateY(0px) rotate(0deg); }
+  75% { transform: translateY(-2.5px) rotate(1.6deg); }
 }
 
 #${IDS.petRoot} .gn-frame {
@@ -300,6 +332,12 @@
 #${IDS.petRoot}.is-panel-open .gn-thought-wrap {
   opacity: 0 !important;
   pointer-events: none !important;
+}
+#${IDS.petRoot}.is-bubble-passthrough .gn-thought-wrap,
+#${IDS.petRoot}.is-bubble-passthrough .gn-thought-wrap *,
+#${IDS.petRoot}.is-bubble-passthrough .gn-thought-hit {
+  pointer-events: none !important;
+  cursor: default !important;
 }
 #${IDS.petRoot} .gn-thought-svg {
   width: 100%;
@@ -373,6 +411,19 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+#${IDS.petRoot}.is-review-alert .gn-thought-svg ellipse {
+  stroke: #d97706;
+}
+.gn-th-proj {
+  font-size: calc(14px * var(--gn-bubble-scale, 1));
+  font-weight: 900;
+  color: #b45309;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .gn-th-hint {
   margin-top: 3px;
@@ -460,6 +511,11 @@
   background: rgba(16, 185, 129, 0.18);
   color: color-mix(in srgb, #10b981 65%, var(--foreground, #d1fae5));
   border-color: rgba(16, 185, 129, 0.42);
+}
+.gn-state-tag.is-wait {
+  background: rgba(245, 158, 11, 0.22);
+  color: color-mix(in srgb, #d97706 72%, var(--foreground, #fef3c7));
+  border-color: rgba(217, 119, 6, 0.5);
 }
 .gn-card-sec {
   margin-top: 9px;
@@ -870,6 +926,7 @@
     }
 
     // ---- HUD State ----
+    const REVIEW_BUBBLE_AUTO_HIDE_MS = 4000;
     const hud = {
       prefs: {
         prefsVersion: 2,
@@ -885,13 +942,17 @@
         completionEasterEgg: true,
         completionSound: false,
         turnCostBubble: true,
+        reviewAlertEnabled: true,
+        reviewAlertSound: true,
+        skin: 'purple',
         anchor: { v: 2, hAnchor: 'right', hDist: 0, vAnchor: 'bottom', vDist: 0 },
         patCount: 0,
         customDialogues: [],
-        customFrames: { idle: '', eat: '', grin: '', xd: '' }
+        customFrames: { idle: '', eat: '', grin: '', xd: '', wait: '' }
       },
       frames: {},
       defaultFrames: {},
+      builtinSkins: { purple: {}, heterochromia: {} },
       soundsB64: {},
       customAudio: null,
       activeConvId: '__init__',
@@ -904,7 +965,7 @@
       pollTimer: null,
       // Pet runtime state
       composing: false,
-      bubbleStage: 0, // 0 = closed, 1 = quota & context, 2 = dialogue line, 3 = turn-end quota cost (10s)
+      bubbleStage: 0, // 0 = closed, 1 = quota & context, 2 = dialogue line, 3 = turn-end quota cost (10s), 4 = review/confirm alert
       currentDialogue: '',
       lastDialogueText: '',
       panelMode: '', // '' | 'card' (Image 4) | 'settings'
@@ -918,7 +979,12 @@
       turnBaseline: null,
       turnEndTimer: null,
       turnBubbleTimer: null,
+      reviewBubbleTimer: null,
       turnSummary: null,
+      activeReview: null,
+      alertedReviewKeys: new Set(),
+      dismissedReviewKeys: new Set(),
+      reviewClearGrace: new Map(),
       curPose: 'idle'
     };
 
@@ -1022,6 +1088,7 @@
         if (hud.soundsB64[`${activeSet}_release`]) void decodeSoundKey(`${activeSet}_release`, hud.soundsB64[`${activeSet}_release`]);
       }
       if (hud.soundsB64.combo_chime) void decodeSoundKey('combo_chime', hud.soundsB64.combo_chime);
+      if (hud.soundsB64.review_alert) void decodeSoundKey('review_alert', hud.soundsB64.review_alert);
     }
 
     function playOscFallback(kind) {
@@ -1029,10 +1096,28 @@
       if (!ctx) return;
       try {
         const now = ctx.currentTime;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
         const vol = Math.max(0, Math.min(1, Number(hud.prefs.volume) || 0.78)) * 0.22;
         if (vol <= 0.001) return;
+        if (kind === 'alert') {
+          const notes = [880, 1108.73, 1318.51];
+          notes.forEach((freq, idx) => {
+            const t0 = now + idx * 0.095;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, t0);
+            gain.gain.setValueAtTime(0.001, t0);
+            gain.gain.linearRampToValueAtTime(vol, t0 + 0.012);
+            gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.14);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(t0);
+            osc.stop(t0 + 0.15);
+          });
+          return;
+        }
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.type = 'sine';
         if (kind === 'press') {
           osc.frequency.setValueAtTime(340, now);
@@ -1141,6 +1226,11 @@
       if (hud.soundsB64.combo_chime) {
         playKeyedSound('combo_chime', hud.soundsB64.combo_chime, 0, 'release');
       }
+    }
+
+    function playReviewAlertSound() {
+      if (!hud.prefs.soundEnabled || hud.prefs.reviewAlertSound === false) return;
+      playKeyedSound('review_alert', hud.soundsB64.review_alert, 0, 'alert');
     }
 
     // ---- Shared Conversation Sync ----
@@ -1366,9 +1456,280 @@
       return detectDomBusy() || Boolean(conv && conv.isThinking);
     }
 
+    function detectDomProjectName() {
+      const candidates = [
+        '[data-testid="project-header"]',
+        '[data-testid="project-selector-trigger"]'
+      ];
+      for (const sel of candidates) {
+        const el = findVisibleEl(sel);
+        const txt = el ? String(el.textContent || '').replace(/\s+/g, ' ').trim() : '';
+        if (txt && !/^(Select|Choose|Projects?|选择项目|切换项目)$/i.test(txt)) {
+          return txt.slice(0, 60);
+        }
+      }
+      const conv = hud.state && hud.state.conv;
+      if (conv && conv.projectName) return String(conv.projectName).trim();
+      if (conv && conv.title) return String(conv.title).trim();
+      const dt = typeof document.title === 'string' ? document.title.replace(/\s*[-—–|·]\s*Antigravity.*$/i, '').trim() : '';
+      return (dt && !/^Antigravity$/i.test(dt)) ? dt : '当前项目';
+    }
+
+    function detectDomPendingReview() {
+      const activeConvId = detectActiveConvId();
+      const convKey = activeConvId || 'win';
+      const convTitle = (hud.state && hud.state.conv && hud.state.conv.title) ? String(hud.state.conv.title).trim() : '';
+      const projName = detectDomProjectName();
+
+      const makeHit = (kind, label) => ({
+        key: `dom:${convKey}:${kind}`,
+        convId: activeConvId || '',
+        projectName: projName,
+        convTitle,
+        kind,
+        label,
+        source: 'dom',
+        extraCount: 0
+      });
+
+      if (findVisibleEl('[data-testid="inline-permission-card"]')) {
+        return makeHit('permission', '权限/命令待确认');
+      }
+      if (findVisibleEl('[data-testid="ask-question-header-text"], [data-testid="ask-question-option"]')) {
+        return makeHit('question', '提问等待主人回答');
+      }
+      if (findVisibleEl('[data-testid="subagent-approve"]')) {
+        return makeHit('permission', '子代理请求批准');
+      }
+      if (findVisibleEl('[data-testid="interaction-takeover-card"]')) {
+        return makeHit('review', '需要主人接管确认');
+      }
+      const inlineCards = queryVisibleAll('[data-testid="inline-card"]');
+      for (const card of inlineCards) {
+        if (findVisibleEl('[data-testid="inline-card-submit"], [data-testid="inline-card-next"]', card)) {
+          return makeHit('review', '审查需求待确认');
+        }
+      }
+      if (findVisibleEl('[data-testid="webview-prompt-card"], [data-testid="declared-permissions-modal"], [data-testid="computer-permissions-card"], [data-testid="external-link-confirm-modal"], [data-testid="toast-permission"]')) {
+        return makeHit('permission', '操作权限待确认');
+      }
+      const reviewContainers = queryVisibleAll('[data-testid="artifact-card"], [data-testid="bubble-artifact-card"], [data-testid="changed-files-card"]');
+      for (const box of reviewContainers) {
+        const btns = queryVisibleAll('button', box);
+        for (const btn of btns) {
+          const txt = String(btn.textContent || '').trim();
+          if (/^(Proceed|Approve|Allow|继续|批准|允许|确认)(\s*•.*)?$/i.test(txt)) {
+            return makeHit('review', '方案/改动待审查确认');
+          }
+        }
+      }
+      return null;
+    }
+
+    function isGraceSuppressed(item) {
+      if (!item) return false;
+      const now = Date.now();
+      for (const [k, exp] of hud.reviewClearGrace.entries()) {
+        if (exp <= now) hud.reviewClearGrace.delete(k);
+      }
+      if (item.key && (hud.reviewClearGrace.get(item.key) || 0) > now) return true;
+      if (item.convId && (hud.reviewClearGrace.get(`conv:${item.convId}`) || 0) > now) return true;
+      return false;
+    }
+
+    function resolveActiveReview() {
+      if (hud.prefs.reviewAlertEnabled === false) return null;
+      const activeConvId = detectActiveConvId();
+      const domHit = detectDomPendingReview();
+      const rpcList = (hud.state && Array.isArray(hud.state.waitingProjects)) ? hud.state.waitingProjects : [];
+
+      const byConv = new Map();
+      for (const raw of rpcList) {
+        if (!raw || !raw.convId) continue;
+        const item = {
+          key: raw.key || `${raw.convId}:${raw.stepIndex ?? 0}`,
+          convId: String(raw.convId).trim().toLowerCase(),
+          projectName: String(raw.projectName || raw.convTitle || '当前项目').trim(),
+          convTitle: String(raw.convTitle || '').trim(),
+          kind: raw.kind || 'review',
+          label: raw.label || '审查需求待确认',
+          source: 'rpc',
+          extraCount: 0
+        };
+        if (!isGraceSuppressed(item)) {
+          byConv.set(item.convId, item);
+        }
+      }
+
+      if (domHit && !isGraceSuppressed(domHit)) {
+        const domKeyId = domHit.convId || '__dom__';
+        const rpcExisting = domHit.convId ? byConv.get(domHit.convId) : null;
+        if (rpcExisting) {
+          byConv.set(domKeyId, {
+            ...rpcExisting,
+            kind: domHit.kind || rpcExisting.kind,
+            label: domHit.label || rpcExisting.label,
+            projectName: rpcExisting.projectName || domHit.projectName,
+            source: 'both'
+          });
+        } else {
+          byConv.set(domKeyId, domHit);
+        }
+      }
+
+      const uniqueConvs = Array.from(byConv.values());
+      if (uniqueConvs.length === 0) return null;
+
+      let chosen = null;
+      if (activeConvId && byConv.has(activeConvId)) {
+        chosen = byConv.get(activeConvId);
+      } else if (byConv.has('__dom__')) {
+        chosen = byConv.get('__dom__');
+      } else {
+        chosen = uniqueConvs[0];
+      }
+
+      return {
+        ...chosen,
+        extraCount: Math.max(0, uniqueConvs.length - 1),
+        _allKeys: uniqueConvs.map((x) => x.key),
+        _allConvTags: uniqueConvs.filter((x) => x.convId).map((x) => `conv:${x.convId}`)
+      };
+    }
+
+    function clearReviewBubbleTimer() {
+      if (hud.reviewBubbleTimer) {
+        clearTimeout(hud.reviewBubbleTimer);
+        hud.reviewBubbleTimer = null;
+      }
+    }
+
+    function syncReviewAlertState() {
+      const root = document.getElementById(IDS.petRoot);
+      const next = resolveActiveReview();
+      const prev = hud.activeReview;
+      hud.activeReview = next;
+
+      if (!next) {
+        clearReviewBubbleTimer();
+        hud.alertedReviewKeys.clear();
+        hud.dismissedReviewKeys.clear();
+        if (root) root.classList.remove('is-review-alert');
+        if (hud.bubbleStage === 4) {
+          hud.bubbleStage = 0;
+          renderThoughtBubbleContent(false);
+        }
+        return false;
+      }
+
+      // Prune alerted keys for conversations no longer waiting so a future confirmation re-alerts
+      const liveSet = new Set([...(next._allKeys || []), ...(next._allConvTags || [])]);
+      for (const k of Array.from(hud.alertedReviewKeys)) {
+        if (!liveSet.has(k)) {
+          hud.alertedReviewKeys.delete(k);
+        }
+      }
+
+      if (root) root.classList.add('is-review-alert');
+
+      const convTag = next.convId ? `conv:${next.convId}` : '';
+      const alreadyAlerted = hud.alertedReviewKeys.has(next.key) || (convTag && hud.alertedReviewKeys.has(convTag));
+      const isDismissed = hud.dismissedReviewKeys.has(next.key) || (convTag && hud.dismissedReviewKeys.has(convTag));
+
+      if (!alreadyAlerted) {
+        hud.alertedReviewKeys.add(next.key);
+        if (convTag) hud.alertedReviewKeys.add(convTag);
+        clearTurnBubbleTimer();
+        clearReviewBubbleTimer();
+        hud.turnSummary = null;
+        if (hud.panelMode !== 'settings') {
+          hud.bubbleStage = 4;
+          renderThoughtBubbleContent(false);
+          const autoKey = next.key;
+          const autoConvTag = convTag;
+          hud.reviewBubbleTimer = setTimeout(() => {
+            hud.reviewBubbleTimer = null;
+            if (autoKey) hud.dismissedReviewKeys.add(autoKey);
+            if (autoConvTag) hud.dismissedReviewKeys.add(autoConvTag);
+            if (hud.bubbleStage === 4) {
+              hud.bubbleStage = 0;
+              renderThoughtBubbleContent(false);
+            }
+          }, REVIEW_BUBBLE_AUTO_HIDE_MS);
+        }
+        playReviewAlertSound();
+        if (root && typeof root.getBoundingClientRect === 'function') {
+          const rect = root.getBoundingClientRect();
+          spawnParticles(rect.left + (rect.width || 112) * 0.48, rect.top + (rect.height || 112) * 0.25, true);
+        }
+      } else if (hud.bubbleStage === 4 && !isDismissed) {
+        renderThoughtBubbleContent(false);
+      }
+
+      return !prev || prev.key !== next.key || prev.projectName !== next.projectName || prev.extraCount !== next.extraCount;
+    }
+
+    function markActiveReviewConfirmed() {
+      if (!hud.activeReview) return;
+      clearReviewBubbleTimer();
+      const now = Date.now();
+      const exp = now + 2500;
+      const curConvId = detectActiveConvId();
+      if (hud.activeReview.key) hud.reviewClearGrace.set(hud.activeReview.key, exp);
+      const targetConv = hud.activeReview.convId || curConvId;
+      if (targetConv) {
+        hud.reviewClearGrace.set(`conv:${targetConv}`, exp);
+        hud.reviewClearGrace.set(`dom:${targetConv}:${hud.activeReview.kind || 'review'}`, exp);
+      } else {
+        hud.reviewClearGrace.set(`dom:win:${hud.activeReview.kind || 'review'}`, exp);
+      }
+
+      const belongsToCurrent = !hud.activeReview.convId || !curConvId || hud.activeReview.convId === curConvId;
+      if (belongsToCurrent) {
+        hud.activeReview = null;
+        const root = document.getElementById(IDS.petRoot);
+        if (root) root.classList.remove('is-review-alert');
+        if (hud.bubbleStage === 4) {
+          hud.bubbleStage = 0;
+          renderThoughtBubbleContent(false);
+        }
+      }
+      syncReviewAlertState();
+      syncThinkingTransition();
+      updatePetPoseDom();
+      setTimeout(() => {
+        refreshTelemetry(true);
+      }, 450);
+    }
+
+    function isConfirmControlTarget(target) {
+      if (!target || typeof target.closest !== 'function') return false;
+      if (target.closest(
+        '[data-testid="inline-permission-allow"], [data-testid="inline-permission-deny"], ' +
+        '[data-testid="inline-card-submit"], [data-testid="inline-card-skip"], ' +
+        '[data-testid="subagent-approve"], [data-testid="subagent-deny"], ' +
+        '[data-testid="interaction-continue-button"], [data-testid="interaction-skip-button"], ' +
+        '[data-testid="ask-question-option"], [data-testid="ask-question-dismiss-button"], ' +
+        '[data-testid="webview-prompt-ok"], [data-testid="webview-prompt-cancel"], ' +
+        '[data-testid="declared-permissions-confirm"], [data-testid="computer-permissions-continue"], ' +
+        '[data-testid="external-link-confirm-open"], [data-testid="external-link-confirm-cancel"]'
+      )) {
+        return true;
+      }
+      const btn = target.closest('button');
+      if (btn && typeof btn.closest === 'function' && btn.closest('[data-testid="artifact-card"], [data-testid="bubble-artifact-card"], [data-testid="changed-files-card"]')) {
+        const txt = String(btn.textContent || '').trim();
+        if (/^(Proceed|Approve|Allow|Reject|Deny|Skip|继续|批准|允许|拒绝|跳过|确认)(\s*•.*)?$/i.test(txt)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     function computePetPose() {
       const now = Date.now();
       if (now < hud.pokeUntil) return 'xd';
+      if (hud.activeReview && hud.prefs.reviewAlertEnabled !== false) return 'wait';
       if (now < hud.celebrateUntil) return 'grin';
       if (isThinkingNow()) return 'eat';
       return 'idle';
@@ -1405,7 +1766,9 @@
     }
 
     function showTurnCompletionBubble(summary) {
+      if (hud.activeReview || hud.bubbleStage === 4) return;
       clearTurnBubbleTimer();
+      clearReviewBubbleTimer();
       hud.turnSummary = summary;
       hud.bubbleStage = 3;
       hud.currentDialogue = '';
@@ -1487,13 +1850,20 @@
 
     function syncThinkingTransition() {
       const thinking = isThinkingNow();
+      const curConvId = detectActiveConvId();
       if (!hud.wasThinking && thinking) {
         if (hud.turnEndTimer) {
           clearTimeout(hud.turnEndTimer);
           hud.turnEndTimer = null;
         }
-        captureTurnBaseline();
+        if (!hud.turnBaseline || (hud.turnBaseline.convId || '') !== (curConvId || '')) {
+          captureTurnBaseline();
+        }
       } else if (hud.wasThinking && !thinking) {
+        if (hud.activeReview && (!hud.activeReview.convId || hud.activeReview.convId === curConvId)) {
+          hud.wasThinking = false;
+          return;
+        }
         if (hud.prefs.completionEasterEgg !== false) {
           triggerCelebrate(2400);
           playCompletionSound();
@@ -1571,6 +1941,7 @@
       const root = document.getElementById(IDS.petRoot);
       if (!root) return;
       root.classList.toggle('is-bubble-open', hud.bubbleStage > 0);
+      root.classList.toggle('is-bubble-passthrough', hud.bubbleStage === 4);
       if (hud.bubbleStage === 0) return;
 
       const hit = root.querySelector('.gn-thought-hit');
@@ -1621,6 +1992,21 @@
             ${remParts.length ? `<div class="gn-th-sub">${esc(remParts.join(' · '))}</div>` : ''}
             ${tokParts.length ? `<div class="gn-th-sub">${esc(tokParts.join(' · '))}</div>` : ''}
             <div class="gn-th-hint">10秒后自动关闭 · 点击关闭</div>
+          `;
+        }
+        if (hud.bubbleStage === 4 && hud.activeReview) {
+          const r = hud.activeReview;
+          const headText = r.extraCount > 0 ? `⚠️ 待确认 (${r.extraCount + 1}个项目)` : '⚠️ 审查确认提醒';
+          const detailParts = [r.label || '审查需求待确认'];
+          if (r.convTitle && r.convTitle !== r.projectName) {
+            detailParts.push(r.convTitle.slice(0, 18));
+          }
+          return `
+            <div class="gn-th-label" style="color:#d97706;">${esc(headText)}</div>
+            <div class="gn-th-proj" title="${esc(r.projectName)}">【${esc(r.projectName || '当前项目')}】</div>
+            <div class="gn-th-sub" style="color:#1e293b;font-weight:800;">请求主人确认啦！</div>
+            <div class="gn-th-sub">${esc(detailParts.join(' · '))}</div>
+            <div class="gn-th-hint">4秒后自动收起 · 不遮挡点击</div>
           `;
         }
         const text = hud.currentDialogue || pickRandomDialogue();
@@ -1700,6 +2086,7 @@
 
       // Left-click character opens Stage 1 Bubble (Quota + Context/Tokens) and closes right-click panel
       clearTurnBubbleTimer();
+      clearReviewBubbleTimer();
       hud.turnSummary = null;
       if (hud.panelMode) {
         hud.panelMode = '';
@@ -1715,7 +2102,11 @@
 
     function handleBubbleLeftClick(e) {
       e.stopPropagation();
+      if (hud.bubbleStage === 4) {
+        return;
+      }
       clearTurnBubbleTimer();
+      clearReviewBubbleTimer();
       if (hud.bubbleStage === 1) {
         hud.bubbleStage = 2;
         hud.currentDialogue = pickRandomDialogue();
@@ -1751,13 +2142,15 @@
       const planName = (hud.state && hud.state.plan && hud.state.plan.planName) || '';
       const groups = (quota && Array.isArray(quota.groups)) ? quota.groups : [];
       const pose = computePetPose();
-      const poseInfo = pose === 'eat'
-        ? { cls: 'is-eat', txt: '吃大米思考中…' }
-        : (pose === 'xd'
-            ? { cls: 'is-xd', txt: '被戳啦 ><' }
-            : (pose === 'grin'
-                ? { cls: 'is-grin', txt: '呲牙得意中' }
-                : { cls: '', txt: '待机中' }));
+      const poseInfo = pose === 'wait'
+        ? { cls: 'is-wait', txt: '请求主人确认中…' }
+        : (pose === 'eat'
+            ? { cls: 'is-eat', txt: '吃大米思考中…' }
+            : (pose === 'xd'
+                ? { cls: 'is-xd', txt: '被戳啦 ><' }
+                : (pose === 'grin'
+                    ? { cls: 'is-grin', txt: '呲牙得意中' }
+                    : { cls: '', txt: '待机中' })));
 
       const ctxTok = conv ? (conv.contextTokens || 0) : 0;
       const ctxMax = conv ? (conv.contextMaxTokens || 0) : 0;
@@ -1911,7 +2304,8 @@
         : (hud.prefs.customAudioPath ? hud.prefs.customAudioPath.split(/[\\/]/).pop() : '未选择');
       const customDialogues = Array.isArray(hud.prefs.customDialogues) ? hud.prefs.customDialogues : [];
       const cf = hud.prefs.customFrames || {};
-      const hasCustomFrame = Boolean(cf.idle || cf.eat || cf.xd || cf.grin);
+      const hasCustomFrame = Boolean(cf.idle || cf.eat || cf.xd || cf.grin || cf.wait);
+      const curSkin = hud.prefs.skin === 'heterochromia' ? 'heterochromia' : 'purple';
 
       panel.setAttribute('data-mode', 'settings');
       panel.__gnCardHtml = '';
@@ -1950,14 +2344,28 @@
 
         <div class="gn-set-row">
           <div class="gn-set-label">
+            <span>🎨 默认皮肤</span>
+            <span style="font-size:10px;opacity:.65;">${curSkin === 'heterochromia' ? '粉金异瞳' : '经典紫瞳'}</span>
+          </div>
+          <div class="gn-chip-row">
+            ${[
+              ['purple', '💜 经典紫瞳'],
+              ['heterochromia', '💗💛 粉金异瞳']
+            ].map(([id, lbl]) => `<button type="button" class="gn-chip ${curSkin === id ? 'is-active' : ''}" data-gn-skin="${id}">${lbl}</button>`).join('')}
+          </div>
+        </div>
+
+        <div class="gn-set-row">
+          <div class="gn-set-label">
             <span>🖼️ 自定义形象</span>
-            ${hasCustomFrame ? `<button type="button" class="gn-chip" data-gn-pet="reset-frames">↺ 恢复默认</button>` : `<span style="font-size:10px;opacity:.65;">当前: 默认 Gemini 娘</span>`}
+            ${hasCustomFrame ? `<button type="button" class="gn-chip" data-gn-pet="reset-frames">↺ 恢复默认</button>` : `<span style="font-size:10px;opacity:.65;">当前: 默认 ${curSkin === 'heterochromia' ? '异瞳猫娘' : '紫瞳猫娘'}</span>`}
           </div>
           <div class="gn-chip-row">
             <button type="button" class="gn-chip ${cf.idle ? 'is-active' : ''}" data-gn-pick-frame="idle">更改主形象${cf.idle ? ' ✓' : ''}</button>
             <button type="button" class="gn-chip ${cf.eat ? 'is-active' : ''}" data-gn-pick-frame="eat">思考差分${cf.eat ? ' ✓' : ''}</button>
             <button type="button" class="gn-chip ${cf.xd ? 'is-active' : ''}" data-gn-pick-frame="xd">戳一戳差分${cf.xd ? ' ✓' : ''}</button>
             <button type="button" class="gn-chip ${cf.grin ? 'is-active' : ''}" data-gn-pick-frame="grin">彩蛋差分${cf.grin ? ' ✓' : ''}</button>
+            <button type="button" class="gn-chip ${cf.wait ? 'is-active' : ''}" data-gn-pick-frame="wait">确认差分${cf.wait ? ' ✓' : ''}</button>
           </div>
         </div>
 
@@ -2010,6 +2418,14 @@
             <button type="button" class="gn-chip ${hud.prefs.showStatsBar !== false ? 'is-active' : ''}" data-gn-pet="toggle-statsbar">${hud.prefs.showStatsBar !== false ? '显示中' : '已隐藏'}</button>
           </div>
           <div class="gn-set-label" style="margin-top:4px;">
+            <span>⚠️ 审查/确认提醒</span>
+            <button type="button" class="gn-chip ${hud.prefs.reviewAlertEnabled !== false ? 'is-active' : ''}" data-gn-pet="toggle-review-alert">${hud.prefs.reviewAlertEnabled !== false ? '已开启' : '已关闭'}</button>
+          </div>
+          <div class="gn-set-label" style="margin-top:4px;">
+            <span>🔔 确认提醒音效</span>
+            <button type="button" class="gn-chip ${hud.prefs.reviewAlertSound !== false ? 'is-active' : ''}" data-gn-pet="toggle-review-sound">${hud.prefs.reviewAlertSound !== false ? '已开启' : '已关闭'}</button>
+          </div>
+          <div class="gn-set-label" style="margin-top:4px;">
             <span>💬 对话完成额度气泡 (10s)</span>
             <button type="button" class="gn-chip ${hud.prefs.turnCostBubble !== false ? 'is-active' : ''}" data-gn-pet="toggle-turn-bubble">${hud.prefs.turnCostBubble !== false ? '已开启' : '已关闭'}</button>
           </div>
@@ -2037,6 +2453,21 @@
       `;
     }
 
+    function applyBuiltinSkinFrames(skinId) {
+      const skin = skinId === 'heterochromia' ? 'heterochromia' : 'purple';
+      const skinMap = (hud.builtinSkins && hud.builtinSkins[skin]) || {};
+      const fallbackMap = (hud.builtinSkins && hud.builtinSkins.purple) || {};
+      const cf = hud.prefs.customFrames || {};
+      for (const k of ['idle', 'eat', 'grin', 'xd', 'wait']) {
+        const defSrc = skinMap[k] || fallbackMap[k] || hud.defaultFrames[k] || '';
+        if (defSrc) hud.defaultFrames[k] = defSrc;
+        if (!cf[k] && defSrc) {
+          hud.frames[k] = defSrc;
+        }
+      }
+      updatePetFrameSrcs();
+    }
+
     function updatePetFrameSrcs() {
       const root = document.getElementById(IDS.petRoot);
       if (!root) return;
@@ -2053,6 +2484,7 @@
     function updatePetWidget() {
       const root = document.getElementById(IDS.petRoot);
       if (!root) return;
+      syncReviewAlertState();
       syncThinkingTransition();
       updatePetPoseDom();
       if (hud.bubbleStage > 0) {
@@ -2075,7 +2507,7 @@
       root.id = IDS.petRoot;
       root.setAttribute('data-pose', 'idle');
 
-      const frameKeys = ['idle', 'eat', 'grin', 'xd'];
+      const frameKeys = ['idle', 'eat', 'grin', 'xd', 'wait'];
       const framesHtml = frameKeys.map((k) => {
         const src = hud.frames[k] || hud.frames.idle || hud.defaultFrames[k] || hud.defaultFrames.idle || '';
         return `<img class="gn-frame ${k === 'idle' ? 'is-active' : ''}" data-frame="${k}" alt="Gemini Neko ${k}" draggable="false" ${src ? `src="${src}"` : ''} />`;
@@ -2094,13 +2526,13 @@
 
           <div class="gn-panel"></div>
 
-          <button type="button" class="gn-avatar-btn" aria-label="Gemini 猫娘挂件" title="">
+          <div class="gn-avatar-btn" role="button" aria-label="Gemini 猫娘挂件" title="">
             <div class="gn-avatar-flip">
               <div class="gn-avatar-anim">
                 ${framesHtml}
               </div>
             </div>
-          </button>
+          </div>
         </div>
       `;
 
@@ -2133,8 +2565,13 @@
       // Pointer drag + quarter-edge snap (flush 0px!) + Q-elastic press/poke
       let drag = null;
 
+      avatarBtn.addEventListener('focus', () => {
+        try { avatarBtn.blur(); } catch {}
+      });
+
       avatarBtn.addEventListener('pointerdown', (e) => {
         if (e.pointerType === 'mouse' && e.button !== 0) return;
+        e.preventDefault();
         e.stopPropagation();
         const r = root.getBoundingClientRect();
         drag = {
@@ -2245,6 +2682,8 @@
             ipcRenderer.invoke('neko-hud:reset-frames', '').then((res) => {
               if (res && res.ok) {
                 if (res.prefs) hud.prefs = { ...hud.prefs, ...res.prefs };
+                if (res.defaultFrames) hud.defaultFrames = res.defaultFrames;
+                if (res.builtinSkins) hud.builtinSkins = res.builtinSkins;
                 if (res.frames) hud.frames = res.frames;
                 updatePetFrameSrcs();
                 renderSettingsPanel();
@@ -2278,6 +2717,19 @@
             savePrefsPatch({ showStatsBar: hud.prefs.showStatsBar === false });
             mountStatsBarOnly();
             updateStatsBar();
+            renderSettingsPanel();
+          } else if (act === 'toggle-review-alert') {
+            savePrefsPatch({ reviewAlertEnabled: hud.prefs.reviewAlertEnabled === false });
+            syncReviewAlertState();
+            updatePetPoseDom();
+            renderSettingsPanel();
+          } else if (act === 'toggle-review-sound') {
+            const next = hud.prefs.reviewAlertSound === false;
+            savePrefsPatch({ reviewAlertSound: next });
+            if (next) {
+              warmActiveSounds();
+              playReviewAlertSound();
+            }
             renderSettingsPanel();
           } else if (act === 'toggle-turn-bubble') {
             savePrefsPatch({ turnCostBubble: hud.prefs.turnCostBubble === false });
@@ -2340,6 +2792,17 @@
               renderSettingsPanel();
             });
           }
+          return;
+        }
+
+        const skinEl = e.target && e.target.closest ? e.target.closest('[data-gn-skin]') : null;
+        if (skinEl) {
+          e.stopPropagation();
+          const nextSkin = skinEl.getAttribute('data-gn-skin') === 'heterochromia' ? 'heterochromia' : 'purple';
+          hud.prefs.skin = nextSkin;
+          applyBuiltinSkinFrames(nextSkin);
+          savePrefsPatch({ skin: nextSkin });
+          renderSettingsPanel();
           return;
         }
 
@@ -2717,6 +3180,7 @@
         if (boot && boot.prefs) hud.prefs = { ...hud.prefs, ...boot.prefs };
         if (boot && boot.frames) hud.frames = boot.frames;
         if (boot && boot.defaultFrames) hud.defaultFrames = boot.defaultFrames;
+        if (boot && boot.builtinSkins) hud.builtinSkins = boot.builtinSkins;
         if (boot && boot.sounds) hud.soundsB64 = boot.sounds;
         if (boot && boot.customAudio) hud.customAudio = boot.customAudio;
       } catch {}
@@ -2762,6 +3226,7 @@
             if (hud.prefs.enabled !== false && !document.getElementById(IDS.petRoot)) {
               mountPetWidget();
             }
+            syncReviewAlertState();
             syncThinkingTransition();
             updatePetPoseDom();
           });
@@ -2802,6 +3267,9 @@
           if ((petRoot && petRoot.contains(e.target)) || (modalEl && modalEl.contains(e.target))) {
             return;
           }
+          if (hud.activeReview && isConfirmControlTarget(e.target)) {
+            markActiveReviewConfirmed();
+          }
           if (e.target && typeof e.target.closest === 'function') {
             if (e.target.closest('[data-testid="new-conversation-button"], [data-testid="conversation-row-sidebar"], [data-testid="project-group"], a[href="/"], a[href^="/c/"], button')) {
               scheduleNavSync();
@@ -2823,6 +3291,7 @@
             }
             if (hud.bubbleStage > 0) {
               clearTurnBubbleTimer();
+              clearReviewBubbleTimer();
               hud.bubbleStage = 0;
               hud.turnSummary = null;
               renderThoughtBubbleContent(false);
@@ -2839,10 +3308,11 @@
           pollTick += 1;
           const switched = syncActiveConversation();
           if (mountStatsBarOnly()) updateStatsBar();
+          syncReviewAlertState();
           syncThinkingTransition();
           updatePetPoseDom();
           if (!switched && pollTick % 6 === 0) {
-            const busy = isThinkingNow();
+            const busy = isThinkingNow() || Boolean(hud.activeReview);
             refreshTelemetry(busy);
           }
         }, 250);
