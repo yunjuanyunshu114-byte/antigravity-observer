@@ -5,6 +5,7 @@
 [![version](https://img.shields.io/badge/version-v1.3.0-6366f1.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer/releases)
 [![Antigravity](https://img.shields.io/badge/Antigravity-2.35.1-8b5cf6.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-10b981.svg)](#第二步执行安装)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 在 Antigravity 客户端右下角静默陪伴你的专属 **Gemini 猫娘挂件**——平时仅显示贴边主形象，AI 思考时自动切换「吃大米」差分，**出现审查需求、权限确认或提问提示时立即切换专属「确认提醒」差分、响起提示音效并冒泡点名请求主人确认的项目（确认后自动结束并恢复原本状态）**，戳一戳触发 `><` 表情、Q 弹动画、音效与三段式思考气泡，**每轮模型对话结束自动冒泡 10 秒播报本轮消耗额度**；同时保留输入框下方紧凑统计胶囊、可滚动上下文深度观察窗以及 Sidecar 原生侧栏面板。
 
@@ -258,6 +259,7 @@ git pull origin main
 │   └── asar_patcher.js              # ASAR 无损重写与 SHA-256 块校验器
 ├── plugin.json                      # Antigravity 插件元信息 (v1.3.0)
 ├── setup.cjs                        # 安装 / 暂存 / 状态检查 / 自检 / 卸载主程序
+├── LICENSE                          # MIT 开源许可证
 ├── 双击安装观察窗补丁.bat             # Windows 一键安装脚本
 └── 双击卸载观察窗补丁.bat             # Windows 一键卸载脚本
 ```
@@ -271,3 +273,9 @@ git pull origin main
 - [`Void-LifeStream/dsh-gemini-kitten-widget`](https://github.com/Void-LifeStream/dsh-gemini-kitten-widget)（Gemini 猫娘挂件视觉参考、锚点定位与额度展示）
 - [`Sutera-Diffusus/dsh-whale-musume`](https://github.com/Sutera-Diffusus/dsh-whale-musume)（静默待机与互动彩蛋理念）
 - [`subamanis/agy-cockpit`](https://github.com/subamanis/agy-cockpit)、[`n2ns/antigravity-panel`](https://github.com/n2ns/antigravity-panel)、[`YashjitPal/BetterGravity`](https://github.com/YashjitPal/BetterGravity)、[`qqxpee/antigravity2-cn`](https://github.com/qqxpee/antigravity2-cn)
+
+---
+
+## 📄 开源协议
+
+本项目基于 [**MIT License**](./LICENSE) 开源，欢迎 Fork、二次修改与公开发布衍生版本（请在分发时保留原始版权与许可声明；参考与复用的上游 MIT 开源组件亦遵循其各自原 MIT 许可）。
