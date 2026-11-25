@@ -6938,7 +6938,7 @@ class AgyCockpitServer {
   }
 
   handleDailyTokens(query = {}) {
-    const reqDays = Math.max(1, Math.min(90, parseInt(String(query.days || '14'), 10) || 14));
+    const reqDays = Math.max(1, Math.min(366, parseInt(String(query.days || '14'), 10) || 14));
     this.refreshIndex({ force: query.refresh === '1' });
 
     const byDate = new Map();

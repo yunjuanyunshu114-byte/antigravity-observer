@@ -587,7 +587,7 @@
     }
 
     async function getFallbackDailyTokens(reqDays = 14, forceRefresh = false) {
-      const nDays = Math.max(1, Math.min(90, Number(reqDays) || 14));
+      const nDays = Math.max(1, Math.min(366, Number(reqDays) || 14));
       ensureDailyCacheLoaded();
       const now = Date.now();
       let dirty = false;
@@ -1573,7 +1573,7 @@
     });
 
     ipcMain.handle('neko-hud:get-daily-tokens', async (_event, days = 14, forceRefresh = false) => {
-      const nDays = Math.max(1, Math.min(90, parseInt(String(days || '14'), 10) || 14));
+      const nDays = Math.max(1, Math.min(366, parseInt(String(days || '14'), 10) || 14));
       const info = findSidecarServerInfo();
       if (info && info.port) {
         const qs = new URLSearchParams({ days: String(nDays) });
