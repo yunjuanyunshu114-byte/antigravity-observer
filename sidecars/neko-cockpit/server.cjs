@@ -11,7 +11,7 @@ const BIND_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8091;
 const SIDECAR_NAME = 'gemini-neko-cockpit/neko-cockpit';
 const PLUGIN_ID = 'gemini-neko-cockpit';
-const GITHUB_REPO = 'subamanis/agy-cockpit';
+const GITHUB_REPO = 'yunjuanyunshu114-byte/antigravity-observer';
 const GITHUB_BRANCH = 'main';
 const PLUGIN_UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const APP_CANDIDATES = ['antigravity', 'antigravity-ide', 'antigravity-cli'];
@@ -5256,9 +5256,9 @@ class AgyCockpitServer {
       }
 
       const { pluginDir, metaPath, repoRoot } = this.readPluginInstallMeta(false);
-      const sidecarDir = path.join(pluginDir, 'sidecars', 'gemini-neko-cockpit');
+      const sidecarDir = path.join(pluginDir, 'sidecars', 'neko-cockpit');
       const targetCommit = st.remoteCommit;
-      const relFiles = ['plugin.json', 'README.md', 'sidecars/agy-cockpit/sidecar.json', 'sidecars/agy-cockpit/server.cjs', 'sidecars/agy-cockpit/ui.html'];
+      const relFiles = ['plugin.json', 'README.md', 'sidecars/neko-cockpit/sidecar.json', 'sidecars/neko-cockpit/server.cjs', 'sidecars/neko-cockpit/ui.html'];
       const fileBuffers = new Map();
 
       if (repoRoot && isDirectory(path.join(repoRoot, '.git'))) {
@@ -5294,7 +5294,7 @@ class AgyCockpitServer {
       let parsedSidecarManifest;
       try {
         const parsedPlugin = JSON.parse(fileBuffers.get('plugin.json').toString('utf-8'));
-        parsedSidecarManifest = JSON.parse(fileBuffers.get('sidecars/agy-cockpit/sidecar.json').toString('utf-8'));
+        parsedSidecarManifest = JSON.parse(fileBuffers.get('sidecars/neko-cockpit/sidecar.json').toString('utf-8'));
         if (!parsedPlugin || typeof parsedPlugin !== 'object' || !parsedSidecarManifest || typeof parsedSidecarManifest !== 'object') {
           throw new Error('Malformed manifest JSON');
         }
@@ -5302,8 +5302,8 @@ class AgyCockpitServer {
         return failUpdate(502, `Invalid manifest in downloaded update: ${err.message}`);
       }
 
-      const serverBuf = fileBuffers.get('sidecars/agy-cockpit/server.cjs');
-      const uiBuf = fileBuffers.get('sidecars/agy-cockpit/ui.html');
+      const serverBuf = fileBuffers.get('sidecars/neko-cockpit/server.cjs');
+      const uiBuf = fileBuffers.get('sidecars/neko-cockpit/ui.html');
       if (!serverBuf || serverBuf.length < 1000 || !uiBuf || uiBuf.length < 1000) {
         return failUpdate(502, 'Downloaded sidecar files are unexpectedly truncated');
       }

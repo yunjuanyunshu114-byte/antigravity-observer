@@ -258,30 +258,53 @@ function buildPatchedAsar(resourcesDir, stripOnly = false) {
   }
 }
 
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {}
+  }
+}
+
 function trySwapStagedAsar(asarPath, stagedPath, allowKill) {
   if (!fs.existsSync(stagedPath)) return { applied: false, reason: 'No staged asar' };
-  if (allowKill && isAntigravityRunning()) {
+  const killed = Boolean(allowKill && isAntigravityRunning());
+  if (killed) {
     killAntigravityWindows();
   }
-  const tmpPrev = `${asarPath}.prev.${Date.now()}`;
-  try {
-    // On Windows, if Antigravity.exe is running, app.asar is locked and rename/copy will throw EBUSY/EPERM.
-    const fd = fs.openSync(asarPath, 'r+');
-    fs.closeSync(fd);
-    fs.copyFileSync(asarPath, tmpPrev);
-    fs.copyFileSync(stagedPath, asarPath);
-    fs.rmSync(stagedPath, { force: true });
-    fs.rmSync(tmpPrev, { force: true });
-    return { applied: true };
-  } catch (err) {
+  const maxAttempts = allowKill ? 20 : 1;
+  const retryDelayMs = 150;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const tmpPrev = `${asarPath}.prev.${Date.now()}`;
     try {
-      if (fs.existsSync(tmpPrev)) {
-        fs.copyFileSync(tmpPrev, asarPath);
-        fs.rmSync(tmpPrev, { force: true });
+      // On Windows, if Antigravity.exe is running, app.asar is locked and rename/copy will throw EBUSY/EPERM.
+      const fd = fs.openSync(asarPath, 'r+');
+      fs.closeSync(fd);
+      fs.copyFileSync(asarPath, tmpPrev);
+      fs.copyFileSync(stagedPath, asarPath);
+      fs.rmSync(stagedPath, { force: true });
+      fs.rmSync(tmpPrev, { force: true });
+      return { applied: true };
+    } catch (err) {
+      lastErr = err;
+      try {
+        if (fs.existsSync(tmpPrev)) {
+          fs.copyFileSync(tmpPrev, asarPath);
+          fs.rmSync(tmpPrev, { force: true });
+        }
+      } catch {}
+      const code = err && err.code;
+      const retryable = code === 'EBUSY' || code === 'EPERM' || code === 'EACCES';
+      if (attempt < maxAttempts && retryable) {
+        sleepSync(retryDelayMs);
+        continue;
       }
-    } catch {}
-    return { applied: false, reason: err.code || err.message, locked: true };
+      break;
+    }
   }
+  return { applied: false, reason: (lastErr && (lastErr.code || lastErr.message)) || 'Swap failed', locked: true };
 }
 
 function checkAsarStatus(resourcesDir) {
@@ -469,6 +492,7 @@ async function main() {
         console.log('[gemini-neko-cockpit] Antigravity is running; ASAR bridge validated & staged at:');
         console.log('  ', built.stagedPath);
         console.log('  Close Antigravity and run `双击安装观察窗补丁.bat` (or `node setup.cjs --apply-staged --kill --relaunch`) to activate the Gemini catgirl widget & context observer.');
+        if (args.includes('--kill')) process.exitCode = 1;
       }
     }
   }
