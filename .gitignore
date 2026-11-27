@@ -10,3 +10,4 @@ assets/custom/
 *.neko-staged
 *.prev.*
 .neko-hud-build-*/
+daily_tokens_cache.json

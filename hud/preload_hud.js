@@ -589,10 +589,20 @@
   background: color-mix(in srgb, var(--foreground, #fff) 4%, transparent);
   border: 1px solid color-mix(in srgb, var(--border, rgba(255,255,255,0.1)) 85%, transparent);
 }
+.gn-gh-grid-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+}
+.gn-gh-cal-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .gn-gh-months {
   position: relative;
   height: 13px;
-  margin-left: 19px;
   font-size: 9.5px;
   color: var(--muted-foreground, #94a3b8);
   line-height: 13px;
@@ -603,23 +613,18 @@
   top: 0;
   white-space: nowrap;
 }
-.gn-gh-grid-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 4px;
-}
 .gn-gh-weekdays {
   display: grid;
-  grid-template-rows: repeat(7, 12px);
+  grid-template-rows: repeat(7, 11px);
   gap: 2px;
-  width: 15px;
+  width: 14px;
   flex-shrink: 0;
   font-size: 9px;
-  line-height: 12px;
+  line-height: 11px;
   color: var(--muted-foreground, #94a3b8);
   text-align: right;
   padding-right: 1px;
+  padding-top: 16px;
 }
 .gn-gh-weeks {
   display: flex;
@@ -628,25 +633,25 @@
 }
 .gn-gh-col {
   display: grid;
-  grid-template-rows: repeat(7, 12px);
+  grid-template-rows: repeat(7, 11px);
   gap: 2px;
 }
 .gn-gh-cell {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 2.5px;
   cursor: pointer;
   border: 1px solid color-mix(in srgb, var(--foreground, #888) 8%, transparent);
-  transition: transform 0.1s ease, outline-color 0.1s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease;
 }
 .gn-gh-cell.is-future {
   visibility: hidden;
   pointer-events: none;
 }
-.gn-gh-cell:hover,
-.gn-gh-cell.is-selected {
-  outline: 1.5px solid #8b5cf6;
-  outline-offset: 1px;
+#${IDS.petRoot} .gn-gh-cell:hover,
+#${IDS.petRoot} .gn-gh-cell.is-selected {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 1.5px rgba(139, 92, 246, 0.85) !important;
   transform: scale(1.08);
   position: relative;
   z-index: 2;
@@ -835,8 +840,8 @@
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(139, 92, 246, 0.22);
-  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.16);
+  color: color-mix(in srgb, var(--foreground, #ddd6fe) 68%, #7c3aed);
 }
 .gn-daily-bar-wrap {
   margin-top: 6px;
@@ -1139,6 +1144,7 @@
       dailyDays: 14,
       dailyData: null,
       dailyLoading: false,
+      dailyModalSeq: 0,
       pollTimer: null,
       // Pet runtime state
       composing: false,
@@ -1149,6 +1155,7 @@
       lastCardHeight: 0,
       dailyPanelData: null,
       dailyPanelLoading: false,
+      dailyHeatmapSeq: 0,
       dailySelectedDate: '',
       pokeUntil: 0,
       pokeTimer: null,
@@ -2537,16 +2544,19 @@
     }
 
     async function loadDailyHeatmapData(forceRefresh = false) {
+      const seq = ++hud.dailyHeatmapSeq;
       hud.dailyPanelLoading = true;
       if (hud.panelMode === 'daily') renderDailyHeatmapPanel();
       try {
         const res = await ipcRenderer.invoke('neko-hud:get-daily-tokens', 140, Boolean(forceRefresh));
-        if (res && res.ok) {
+        if (seq === hud.dailyHeatmapSeq && res && res.ok) {
           hud.dailyPanelData = res;
         }
       } catch {} finally {
-        hud.dailyPanelLoading = false;
-        if (hud.panelMode === 'daily') renderDailyHeatmapPanel();
+        if (seq === hud.dailyHeatmapSeq) {
+          hud.dailyPanelLoading = false;
+          if (hud.panelMode === 'daily') renderDailyHeatmapPanel();
+        }
       }
     }
 
@@ -2663,7 +2673,7 @@
         </div>
       `).join('');
 
-      const monthsHtml = monthMarks.map((m) => `<span class="gn-gh-month" style="left:${m.col * 14}px;">${esc(m.label)}</span>`).join('');
+      const monthsHtml = monthMarks.map((m) => `<span class="gn-gh-month" style="left:${m.col * 13}px;">${esc(m.label)}</span>`).join('');
 
       panel.innerHTML = `
         <div class="gn-card-head">
@@ -2692,7 +2702,6 @@
         </div>
 
         <div class="gn-gh-wrap">
-          <div class="gn-gh-months">${monthsHtml}</div>
           <div class="gn-gh-grid-row">
             <div class="gn-gh-weekdays">
               <span></span>
@@ -2703,7 +2712,10 @@
               <span>五</span>
               <span></span>
             </div>
-            <div class="gn-gh-weeks">${colsHtml}</div>
+            <div class="gn-gh-cal-col">
+              <div class="gn-gh-months">${monthsHtml}</div>
+              <div class="gn-gh-weeks">${colsHtml}</div>
+            </div>
           </div>
           <div class="gn-gh-legend">
             <span>活跃 ${activeDaysInGrid} 天</span>
@@ -3666,16 +3678,19 @@
 
     async function loadDailyTokensData(forceRefresh = false) {
       const reqDays = hud.dailyDays || 14;
+      const seq = ++hud.dailyModalSeq;
       hud.dailyLoading = true;
       renderDailyTokensModal();
       try {
         const res = await ipcRenderer.invoke('neko-hud:get-daily-tokens', reqDays, Boolean(forceRefresh));
-        if (hud.dailyDays === reqDays && res && res.ok) {
+        if (seq === hud.dailyModalSeq && hud.dailyDays === reqDays && res && res.ok) {
           hud.dailyData = res;
         }
       } catch {} finally {
-        hud.dailyLoading = false;
-        renderDailyTokensModal();
+        if (seq === hud.dailyModalSeq) {
+          hud.dailyLoading = false;
+          renderDailyTokensModal();
+        }
       }
     }
 

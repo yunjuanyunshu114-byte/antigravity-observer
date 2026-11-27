@@ -1541,13 +1541,6 @@ function processTranscriptLine(entry, line, isFirstLine, fallbackMtimeMs = 0) {
     }
     entry.lastPlannerStepTok = { inTok: effInTok, cacheTok: effCacheTok, outTok: effOutTok };
     entry.lastPlannerStepDateKey = stepDateKey;
-    if (effOutTok > 0 && entry.lastPlannerCreatedMs > 0) {
-      const nowGapSec = Math.max(0.4, (Date.now() - entry.lastPlannerCreatedMs) / 1000);
-      if (nowGapSec <= 120) {
-        const estSpd = Math.round((effOutTok / nowGapSec) * 10) / 10;
-        if (estSpd > 0 && estSpd < 5000) entry.lastStepSpeedTokPerSec = estSpd;
-      }
-    }
 
     let isHandoffStep = false;
     if (content && content.trim()) {
@@ -5039,10 +5032,8 @@ class AgyCockpitServer {
       let latestEstimatedTokens = 0;
       let latestTokenBreakdown = null;
       let latestTtftMs = 0;
-      let speedTokSum = 0;
-      let speedMsSum = 0;
-      let speedCount = 0;
-      let fallbackSpd = 0;
+      const speedSamples = [];
+      const fallbackSamples = [];
       for (let i = list.length - 1; i >= 0; i--) {
         const item = list[i];
         if (!item) continue;
@@ -5084,16 +5075,17 @@ class AgyCockpitServer {
           const streamMs = parseDurationMs(cm.streamingDuration);
           const ttft = parseDurationMs(cm.timeToFirstToken);
           if (!latestTtftMs && ttft > 0) latestTtftMs = ttft;
-          const outTok = Number(cm.usage && (cm.usage.responseOutputTokens || cm.usage.outputTokens)) || 0;
+          const usage = cm.usage || {};
+          const respOut = Number(usage.responseOutputTokens) || 0;
+          const thinkOut = Number(usage.thinkingOutputTokens) || 0;
+          const outTok = respOut > 0 ? respOut : (thinkOut === 0 ? (Number(usage.outputTokens) || 0) : 0);
           if (streamMs > 0 && outTok > 0) {
-            const instSpd = outTok / (streamMs / 1000);
-            if (instSpd <= 1500) {
-              if (streamMs >= 450 && speedCount < 3) {
-                speedTokSum += outTok;
-                speedMsSum += streamMs;
-                speedCount += 1;
-              } else if (!fallbackSpd && streamMs >= 150) {
-                fallbackSpd = Math.round(instSpd * 10) / 10;
+            const instSpd = Math.round((outTok / (streamMs / 1000)) * 10) / 10;
+            if (instSpd > 0 && instSpd <= 600) {
+              if (streamMs >= 800 && speedSamples.length < 5) {
+                speedSamples.push(instSpd);
+              } else if (streamMs >= 450 && fallbackSamples.length < 3) {
+                fallbackSamples.push(instSpd);
               }
             }
           }
@@ -5102,7 +5094,7 @@ class AgyCockpitServer {
           foundEnum = mEnum && mEnum !== 'MODEL_UNSPECIFIED' ? mEnum : '';
           foundLabel = mLabel;
         }
-        if (foundEnum && latestMaxContextTokens > 0 && speedCount >= 2) {
+        if (foundEnum && latestMaxContextTokens > 0 && speedSamples.length >= 5) {
           break;
         }
       }
@@ -5116,9 +5108,16 @@ class AgyCockpitServer {
           foundLabel = catalogHit.label;
         }
       }
-      const avgTokPerSec = speedMsSum > 0
-        ? Math.round((speedTokSum / (speedMsSum / 1000)) * 10) / 10
-        : fallbackSpd;
+      const calcSpeedMedian = (arr) => {
+        if (!arr || arr.length === 0) return 0;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        const raw = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+        return Math.round(raw * 10) / 10;
+      };
+      const avgTokPerSec = speedSamples.length > 0
+        ? calcSpeedMedian(speedSamples)
+        : calcSpeedMedian(fallbackSamples);
       const prevGm = this.genMetaCache.get(cleanId);
       const gmRecord = {
         maxContextTokens: latestMaxContextTokens || (prevGm ? prevGm.maxContextTokens : 0),
@@ -6217,7 +6216,7 @@ class AgyCockpitServer {
     const roundsCount = Math.max(entry.promptCount || 0, (entry.stepCount > 0 || (lsMeta && lsMeta.stepCount > 0)) ? 1 : 0);
     const stepsCount = Math.max(entry.stepCount || 0, (lsMeta && lsMeta.stepCount) || 0, (entry.lastParsedStepIndex >= 0 ? entry.lastParsedStepIndex + 1 : 0));
     const cacheHitPct = calcExactCacheHitPct(entry.totalInputTokens, entry.totalCacheReadTokens);
-    const tokPerSec = (gm && gm.tokPerSec > 0) ? gm.tokPerSec : (entry.lastStepSpeedTokPerSec || 0);
+    const tokPerSec = (gm && gm.tokPerSec > 0) ? gm.tokPerSec : 0;
     const ttftMs = (gm && gm.ttftMs) || 0;
 
     const drift = this.gitCache.computeDriftForConversation(entry);

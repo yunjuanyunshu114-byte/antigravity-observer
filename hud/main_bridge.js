@@ -878,10 +878,6 @@
         const denom = out.inputTokens + out.cacheReadTokens;
         out.cacheHitPct = denom > 0 ? Math.min(100, Math.round((out.cacheReadTokens / denom) * 1000) / 10) : null;
         if (out.rounds === 0 && out.steps > 0) out.rounds = 1;
-        if (lastOut > 0 && lastPlannerCreatedMs > 0) {
-          const dt = Math.max(0.5, (st.mtimeMs - lastPlannerCreatedMs) / 1000);
-          if (dt <= 120) out.tokPerSec = Math.round((lastOut / dt) * 10) / 10;
-        }
         out.isThinking =
           Date.now() - st.mtimeMs < 180000 &&
           (lastStepStatus === 'RUNNING' ||
@@ -1188,8 +1184,8 @@
           let estimatedTokensUsed = 0;
           let modelLabel = '';
           let ttftMs = 0;
-          let tokPerSec = 0;
-          let fallbackSpd = 0;
+          const speedSamples = [];
+          const fallbackSamples = [];
           let tokenBreakdown = null;
           for (let i = list.length - 1; i >= 0; i--) {
             const item = list[i];
@@ -1219,18 +1215,28 @@
               }
             }
             const sm = parseDurationMs(cm.streamingDuration);
-            const ot = Number(cm.usage && (cm.usage.responseOutputTokens || cm.usage.outputTokens)) || 0;
+            const usage = cm.usage || {};
+            const respOut = Number(usage.responseOutputTokens) || 0;
+            const thinkOut = Number(usage.thinkingOutputTokens) || 0;
+            const ot = respOut > 0 ? respOut : (thinkOut === 0 ? (Number(usage.outputTokens) || 0) : 0);
             if (sm > 0 && ot > 0) {
               const spd = Math.round((ot / (sm / 1000)) * 10) / 10;
-              if (spd <= 1500) {
-                if (!tokPerSec && sm >= 450) tokPerSec = spd;
-                else if (!fallbackSpd && sm >= 150) fallbackSpd = spd;
+              if (spd > 0 && spd <= 600) {
+                if (sm >= 800 && speedSamples.length < 5) speedSamples.push(spd);
+                else if (sm >= 450 && fallbackSamples.length < 3) fallbackSamples.push(spd);
               }
             }
             if (!ttftMs) ttftMs = parseDurationMs(cm.timeToFirstToken);
-            if (maxContextTokens > 0 && tokPerSec > 0 && modelLabel) break;
+            if (maxContextTokens > 0 && speedSamples.length >= 5 && modelLabel) break;
           }
-          if (!tokPerSec && fallbackSpd) tokPerSec = fallbackSpd;
+          const calcSpeedMedian = (arr) => {
+            if (!arr || arr.length === 0) return 0;
+            const sorted = [...arr].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            const raw = sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            return Math.round(raw * 10) / 10;
+          };
+          const tokPerSec = speedSamples.length > 0 ? calcSpeedMedian(speedSamples) : calcSpeedMedian(fallbackSamples);
           gm = { maxContextTokens, estimatedTokensUsed, modelLabel, ttftMs, tokPerSec, tokenBreakdown };
           fallbackMetaCache.set(convId, { ts: now, steps: parsed.steps, data: gm });
         }
