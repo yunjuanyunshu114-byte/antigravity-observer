@@ -987,6 +987,14 @@
       return `${Math.max(1, mins)}m`;
     }
 
+    function fmtResetLabel(isoOrMs, prefix) {
+      const compact = fmtResetCompact(isoOrMs);
+      if (!compact) return '';
+      return compact === '即将重置'
+        ? `${prefix ? `${prefix} ` : ''}即将重置`
+        : `${prefix ? `${prefix} ` : ''}${compact}重置`;
+    }
+
     function esc(s) {
       return String(s ?? '')
         .replace(/&/g, '&amp;')
@@ -1112,6 +1120,7 @@
         showStatsBar: true,
         size: 112,
         bubbleScale: 1,
+        bubbleAutoHideSec: 8,
         opacity: 1,
         soundEnabled: true,
         soundSet: 'boing',
@@ -1167,6 +1176,9 @@
       turnBaseline: null,
       turnEndTimer: null,
       turnBubbleTimer: null,
+      pokeBubbleTimer: null,
+      bubbleFadeTimer: null,
+      bubbleHovered: false,
       reviewBubbleTimer: null,
       turnSummary: null,
       activeReview: null,
@@ -1829,6 +1841,7 @@
         if (convTag) hud.alertedReviewKeys.add(convTag);
         clearTurnBubbleTimer();
         clearReviewBubbleTimer();
+        clearPokeBubbleTimer();
         hud.turnSummary = null;
         if (hud.panelMode !== 'settings') {
           hud.bubbleStage = 4;
@@ -1930,6 +1943,37 @@
       }
     }
 
+    function clearPokeBubbleTimer() {
+      if (hud.pokeBubbleTimer) {
+        clearTimeout(hud.pokeBubbleTimer);
+        hud.pokeBubbleTimer = null;
+      }
+    }
+
+    function clearBubbleFadeTimer() {
+      if (hud.bubbleFadeTimer) {
+        clearTimeout(hud.bubbleFadeTimer);
+        hud.bubbleFadeTimer = null;
+      }
+    }
+
+    function schedulePokeBubbleAutoHide() {
+      clearPokeBubbleTimer();
+      const rawSec = Number(hud.prefs.bubbleAutoHideSec);
+      const autoSec = Number.isFinite(rawSec) ? rawSec : 8;
+      if (autoSec <= 0 || hud.bubbleHovered) return;
+      if (hud.bubbleStage !== 1 && hud.bubbleStage !== 2) return;
+      hud.pokeBubbleTimer = setTimeout(() => {
+        hud.pokeBubbleTimer = null;
+        if (hud.bubbleHovered) return;
+        if (hud.bubbleStage === 1 || hud.bubbleStage === 2) {
+          hud.bubbleStage = 0;
+          hud.currentDialogue = '';
+          renderThoughtBubbleContent(false);
+        }
+      }, autoSec * 1000);
+    }
+
     function captureTurnBaseline() {
       const { conv, activeGrp, fiveH, weekly } = getQuotaMetrics();
       const used5 = fiveH
@@ -1957,6 +2001,7 @@
       if (hud.activeReview || hud.bubbleStage === 4) return;
       clearTurnBubbleTimer();
       clearReviewBubbleTimer();
+      clearPokeBubbleTimer();
       hud.turnSummary = summary;
       hud.bubbleStage = 3;
       hud.currentDialogue = '';
@@ -2132,9 +2177,12 @@
       if (!root) return;
       root.classList.toggle('is-bubble-open', hud.bubbleStage > 0);
       root.classList.toggle('is-bubble-passthrough', hud.bubbleStage === 4);
-      if (hud.bubbleStage === 0) return;
-
       const hit = root.querySelector('.gn-thought-hit');
+      if (hud.bubbleStage === 0) {
+        clearBubbleFadeTimer();
+        if (hit) hit.classList.remove('is-fading');
+        return;
+      }
       if (!hit) return;
 
       const buildInner = () => {
@@ -2144,13 +2192,20 @@
           const rem5 = fiveH && typeof fiveH.remainingPct === 'number' ? fiveH.remainingPct : null;
           const remCol = rem5 !== null ? pctColor(rem5, true) : '#3b4b8c';
           const heroStr = rem5 !== null ? `剩 ${rem5}%` : (conv && conv.contextPct !== null ? `${conv.contextPct}%` : '同步中…');
-          const reset5 = fiveH ? fmtResetCompact(fiveH.resetMs || fiveH.resetAtIso || fiveH.resetAtMs) : '';
-          const weekStr = weekly && typeof weekly.remainingPct === 'number' ? `周剩 ${weekly.remainingPct}%` : '';
+          const reset5Compact = fiveH ? fmtResetCompact(fiveH.resetMs || fiveH.resetAtIso || fiveH.resetAtMs) : '';
+          const reset5Label = fiveH ? fmtResetLabel(fiveH.resetMs || fiveH.resetAtIso || fiveH.resetAtMs, '5h') : '';
+          const resetWeekCompact = weekly ? fmtResetCompact(weekly.resetMs || weekly.resetAtIso || weekly.resetAtMs) : '';
+          const weekResetSuffix = (resetWeekCompact && resetWeekCompact !== reset5Compact)
+            ? ` (${resetWeekCompact})`
+            : '';
+          const weekStr = weekly && typeof weekly.remainingPct === 'number'
+            ? `周剩 ${weekly.remainingPct}%${weekResetSuffix}`
+            : '';
           const ctxStr = conv
             ? `上下文 ${conv.contextPct ?? '?'}% (${fmtTok(conv.contextTokens)}/${conv.contextMaxTokens ? fmtTok(conv.contextMaxTokens) : '?'})`
             : '暂无活跃对话';
-          const tokStr = conv ? `已用 ${fmtTok(conv.totalTokens)} tok` : (reset5 ? `${reset5} 重置` : '');
-          const subLine1 = [weekStr, reset5 ? `${reset5}重置` : ''].filter(Boolean).join(' · ');
+          const tokStr = conv ? `已用 ${fmtTok(conv.totalTokens)} tok` : '';
+          const subLine1 = [reset5Label, weekStr].filter(Boolean).join(' · ');
           const subLine2 = [ctxStr, tokStr].filter(Boolean).join(' · ');
           return `
             <div class="gn-th-label">${esc(grpShort)} 5h 额度</div>
@@ -2207,16 +2262,26 @@
       };
 
       const nextHtml = buildInner();
+      clearBubbleFadeTimer();
       if (withFade) {
         hit.classList.add('is-fading');
-        setTimeout(() => {
+        const expectedStage = hud.bubbleStage;
+        hud.bubbleFadeTimer = setTimeout(() => {
+          hud.bubbleFadeTimer = null;
+          if (hud.bubbleStage !== expectedStage) {
+            hit.classList.remove('is-fading');
+            return;
+          }
           hit.__gnHtml = nextHtml;
           hit.innerHTML = nextHtml;
           hit.classList.remove('is-fading');
         }, 140);
-      } else if (hit.__gnHtml !== nextHtml) {
-        hit.__gnHtml = nextHtml;
-        hit.innerHTML = nextHtml;
+      } else {
+        hit.classList.remove('is-fading');
+        if (hit.__gnHtml !== nextHtml) {
+          hit.__gnHtml = nextHtml;
+          hit.innerHTML = nextHtml;
+        }
       }
     }
 
@@ -2274,20 +2339,35 @@
       const py = e && Number.isFinite(e.clientY) ? e.clientY : (rect ? rect.top + rect.height * 0.3 : window.innerHeight - 90);
       spawnParticles(px, py, isCombo);
 
-      // Left-click character opens Stage 1 Bubble (Quota + Context/Tokens) and closes right-click panel
+      // Left-click character cycles: Closed/Alert/TurnEnd -> Stage 1 (Quota) -> Stage 2 (Dialogue) -> Closed
       clearTurnBubbleTimer();
       clearReviewBubbleTimer();
+      clearPokeBubbleTimer();
       hud.turnSummary = null;
       if (hud.panelMode) {
         hud.panelMode = '';
         syncPanelVisibility();
       }
-      const wasOpen = hud.bubbleStage > 0;
-      hud.bubbleStage = 1;
-      hud.currentDialogue = '';
-      updatePetPoseDom();
-      renderThoughtBubbleContent(wasOpen);
-      refreshTelemetry(true);
+      if (hud.bubbleStage === 1) {
+        hud.bubbleStage = 2;
+        hud.currentDialogue = pickRandomDialogue();
+        updatePetPoseDom();
+        renderThoughtBubbleContent(true);
+        schedulePokeBubbleAutoHide();
+      } else if (hud.bubbleStage === 2) {
+        hud.bubbleStage = 0;
+        hud.currentDialogue = '';
+        updatePetPoseDom();
+        renderThoughtBubbleContent(false);
+      } else {
+        const wasOpen = hud.bubbleStage > 0;
+        hud.bubbleStage = 1;
+        hud.currentDialogue = '';
+        updatePetPoseDom();
+        renderThoughtBubbleContent(wasOpen);
+        schedulePokeBubbleAutoHide();
+        refreshTelemetry(true);
+      }
     }
 
     function handleBubbleLeftClick(e) {
@@ -2297,10 +2377,12 @@
       }
       clearTurnBubbleTimer();
       clearReviewBubbleTimer();
+      clearPokeBubbleTimer();
       if (hud.bubbleStage === 1) {
         hud.bubbleStage = 2;
         hud.currentDialogue = pickRandomDialogue();
         renderThoughtBubbleContent(true);
+        schedulePokeBubbleAutoHide();
       } else {
         hud.bubbleStage = 0;
         hud.currentDialogue = '';
@@ -2375,10 +2457,13 @@
                   const rem = typeof b.remainingPct === 'number' ? b.remainingPct : 0;
                   const col = pctColor(rem, true);
                   const reset = fmtResetCountdown(b.resetMs || b.resetAtIso || b.resetAtMs);
+                  const winText = b.windowLabel === '5-hour'
+                    ? '5h 额度'
+                    : (b.windowLabel === 'Weekly' ? '周额度' : (b.windowLabel || 'Quota'));
                   return `
                     <div class="gn-bar-row" style="margin-bottom:4px;">
                       <div class="gn-bar-meta">
-                        <span>${esc(b.windowLabel || 'Quota')}</span>
+                        <span>${esc(winText)}</span>
                         <span class="gn-mono" style="color:${col};font-weight:700;">剩 ${rem}%${reset ? ` · ${esc(reset)}` : ''}</span>
                       </div>
                       <div class="gn-bar-track"><div class="gn-bar-fill" style="width:${Math.max(2, rem)}%;background:${col};"></div></div>
@@ -2389,7 +2474,8 @@
           const summaryBits = buckets.map((b) => {
             const rem = typeof b.remainingPct === 'number' ? b.remainingPct : 0;
             const col = pctColor(rem, true);
-            return `<span class="gn-mono" style="color:${col};">${esc(b.windowLabel)} ${rem}%</span>`;
+            const shortWin = b.windowLabel === '5-hour' ? '5h' : (b.windowLabel === 'Weekly' ? '周' : b.windowLabel);
+            return `<span class="gn-mono" style="color:${col};">${esc(shortWin)} ${rem}%</span>`;
           }).join(' · ');
           return `
             <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;padding:2px 0;opacity:.88;">
@@ -2746,6 +2832,8 @@
       const curSize = hud.prefs.size || 112;
       const curBubbleScale = Math.max(0.65, Math.min(1.6, Number(hud.prefs.bubbleScale) || 1));
       const curBubblePct = Math.round(curBubbleScale * 100);
+      const rawAutoHide = Number(hud.prefs.bubbleAutoHideSec);
+      const curAutoHide = Number.isFinite(rawAutoHide) ? rawAutoHide : 8;
       const curOpacity = Math.round((hud.prefs.opacity ?? 1) * 100);
       const curVol = Math.round((hud.prefs.volume ?? 0.78) * 100);
       const curSet = hud.prefs.soundSet || 'boing';
@@ -2789,6 +2877,19 @@
               [1.45, '超大']
             ].map(([sc, lbl]) => `<button type="button" class="gn-chip ${Math.abs(curBubbleScale - sc) < 0.03 ? 'is-active' : ''}" data-gn-bubble-size="${sc}">${lbl}</button>`).join('')}
             <button type="button" class="gn-chip" data-gn-bubble-step="0.1" title="放大气泡">＋</button>
+          </div>
+        </div>
+
+        <div class="gn-set-row">
+          <div class="gn-set-label"><span>⏱️ 互动气泡自动收起</span><span class="gn-mono">${curAutoHide <= 0 ? '手动关闭' : `${curAutoHide} 秒`}</span></div>
+          <div class="gn-chip-row">
+            ${[
+              [0, '关闭'],
+              [5, '5秒'],
+              [8, '8秒'],
+              [15, '15秒'],
+              [30, '30秒']
+            ].map(([sec, lbl]) => `<button type="button" class="gn-chip ${curAutoHide === sec ? 'is-active' : ''}" data-gn-bubble-autohide="${sec}">${lbl}</button>`).join('')}
           </div>
         </div>
 
@@ -2842,7 +2943,7 @@
                 </div>
               `).join('')}
             </div>
-          ` : '<div style="font-size:10px;opacity:.6;margin-top:4px;">添加后在第二次左键单击气泡时随机出现</div>'}
+          ` : '<div style="font-size:10px;opacity:.6;margin-top:4px;">添加后在第 2 次摸猫娘头或点击气泡时随机出现</div>'}
         </div>
 
         <div class="gn-set-row">
@@ -3005,15 +3106,29 @@
           hud.panelMode = '';
         } else {
           hud.panelMode = 'card';
+          if (hud.bubbleStage > 0 && hud.bubbleStage !== 4) {
+            clearTurnBubbleTimer();
+            clearPokeBubbleTimer();
+            hud.bubbleStage = 0;
+            hud.turnSummary = null;
+          }
           refreshTelemetry(true);
         }
         syncPanelVisibility();
       });
 
-      // Bubble left-click: Stage 1 -> Stage 2 (dialogue) -> Close
+      // Bubble left-click: Stage 1 -> Stage 2 (dialogue) -> Close; hover pauses auto-hide
       if (thoughtHit) {
         thoughtHit.addEventListener('click', (e) => {
           handleBubbleLeftClick(e);
+        });
+        thoughtHit.addEventListener('mouseenter', () => {
+          hud.bubbleHovered = true;
+          clearPokeBubbleTimer();
+        });
+        thoughtHit.addEventListener('mouseleave', () => {
+          hud.bubbleHovered = false;
+          schedulePokeBubbleAutoHide();
         });
       }
 
@@ -3234,6 +3349,20 @@
           const delta = Number(bubbleStepEl.getAttribute('data-gn-bubble-step')) || 0;
           const nextScale = Math.max(0.65, Math.min(1.6, Math.round((cur + delta) * 100) / 100));
           savePrefsPatch({ bubbleScale: nextScale });
+          renderSettingsPanel();
+          return;
+        }
+
+        const autoHideEl = e.target && e.target.closest ? e.target.closest('[data-gn-bubble-autohide]') : null;
+        if (autoHideEl) {
+          e.stopPropagation();
+          const raw = Number(autoHideEl.getAttribute('data-gn-bubble-autohide'));
+          const nextSec = Number.isFinite(raw) ? (raw <= 0 ? 0 : Math.max(3, Math.min(60, Math.round(raw)))) : 8;
+          savePrefsPatch({ bubbleAutoHideSec: nextSec });
+          if (hud.bubbleStage === 1 || hud.bubbleStage === 2) {
+            if (nextSec <= 0) clearPokeBubbleTimer();
+            else schedulePokeBubbleAutoHide();
+          }
           renderSettingsPanel();
           return;
         }
@@ -3559,9 +3688,12 @@
                   ${(g.buckets || []).map((b) => {
                     const rem = b.remainingPct ?? 0;
                     const col = pctColor(rem, true);
+                    const winText = b.windowLabel === '5-hour'
+                      ? '5h 额度'
+                      : (b.windowLabel === 'Weekly' ? '周额度' : (b.windowLabel || 'Quota'));
                     return `
                       <div class="gn-bar-row">
-                        <div class="gn-bar-meta"><span>${esc(b.windowLabel)}</span><span class="gn-mono" style="color:${col};">${rem}%</span></div>
+                        <div class="gn-bar-meta"><span>${esc(winText)}</span><span class="gn-mono" style="color:${col};">${rem}%</span></div>
                         <div class="gn-bar-track"><div class="gn-bar-fill" style="width:${Math.max(2, rem)}%;background:${col};"></div></div>
                         <div style="font-size:9.5px;opacity:.6;text-align:right;">${esc(fmtResetCountdown(b.resetMs || b.resetAtIso || b.resetAtMs))}</div>
                       </div>`;
@@ -3972,6 +4104,7 @@
             if (hud.bubbleStage > 0) {
               clearTurnBubbleTimer();
               clearReviewBubbleTimer();
+              clearPokeBubbleTimer();
               hud.bubbleStage = 0;
               hud.turnSummary = null;
               renderThoughtBubbleContent(false);

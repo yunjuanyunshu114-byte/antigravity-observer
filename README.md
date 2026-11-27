@@ -1,8 +1,8 @@
-# Gemini 猫娘观察台 · 反重力观察窗（Antigravity Observer v1.3.0）
+# Gemini 猫娘观察台 · 反重力观察窗（Antigravity Observer v1.4.0）
 
 > 专为 **Google Antigravity**（已实测适配 `2.35.2`）打造的应用内紧贴右下角 **Gemini 猫娘桌面挂件**与**上下文 / Token / 额度观察窗**（GitHub 仓库：`antigravity-observer`，插件 ID：`gemini-neko-cockpit`，兼容保留 `AG_ZH` 中文汉化补丁）。
 
-[![version](https://img.shields.io/badge/version-v1.3.0-6366f1.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer/releases)
+[![version](https://img.shields.io/badge/version-v1.4.0-6366f1.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer/releases)
 [![Antigravity](https://img.shields.io/badge/Antigravity-2.35.2-8b5cf6.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-10b981.svg)](#第二步执行安装)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
@@ -13,7 +13,7 @@
 
 ---
 
-## 📋 v1.3.0 版本特性总览
+## 📋 v1.4.0 版本特性总览
 
 ### 1. 应用内紧贴右下角 Gemini 猫娘挂件
 - **无打扰静默待机**：紧贴窗口右下角（`0px` 贴边），平时仅展示统一无鲸鱼耳猫娘头发与蓝紫发色、透明抠图处理的 Gemini 娘主形象，不常驻额外按钮或遮挡工作区。
@@ -27,18 +27,20 @@
 - **审查与确认实时提醒气泡（不可点击穿透 + 4 秒自动收起）**：
   - 当任意项目触发命令/权限审批、方案审查确认、接管确认或问题询问时，立即播放专属铃音 `review_alert.wav` 并弹出琥珀高亮边框气泡，明确显示 **`【项目名】请求主人确认啦！`** 与具体待确认类型（`权限/命令待确认`、`审查需求待确认`、`提问等待主人回答` 等）；
   - 为避免遮挡「提交 / 确认」按钮，提醒气泡**完全不可点击穿透**并在 **4 秒后自动收起**，猫娘保持 `wait` 差分直到主人点击「Allow / Proceed / Submit / 确认」后无缝切回对应的思考（`eat`）或待机（`idle`）状态（不会误触发回合结束播报）。
-- **左键三段式椭圆思考气泡**：
-  1. **第 1 次左键点击形象**：弹出椭圆思考气泡，展示当前主模型 **5h / 每周剩余额度**、重置倒计时、**上下文占用**与 **已用 Token**（同时触发 `><` 差分与音效）；
-  2. **第 2 次左键单击气泡**：切换展示猫娘随机台词（内置台词 + 用户自定义台词，支持实时变量占位符）；
-  3. **第 3 次左键点击气泡**：收起关闭气泡（切换至其他区域或重新触发亦会自动管理）。
+- **左键摸头循环三段式椭圆思考气泡（支持自动收起 & 悬停暂停）**：
+  1. **第 1 次摸猫娘头（左键点击形象）**：弹出椭圆思考气泡，展示当前主模型 **5h / 每周剩余额度与各自独立的重置倒计时（如 `5h 2h28m重置 · 周剩 59.7% (5d23h)`，无活跃对话时不重复显示重置时间）**、**上下文占用**与 **已用 Token**（同时触发 `><` 差分与音效）；
+  2. **第 2 次继续摸猫娘头（或左键单击气泡）**：直接切换展示猫娘随机台词（内置台词 + 用户自定义台词，支持实时变量占位符）；
+  3. **第 3 次继续摸猫娘头（或再次点击气泡）**：收起关闭气泡（第 4 次摸头再次显示额度，如此循环）；
+  4. **可配置自动收起（默认 8 秒）**：互动气泡长时间未操作后会自动静默收起，鼠标悬停在气泡上时自动暂停倒计时，可在「⚙️ 挂件设置」中选择 `关闭 / 5秒 / 8秒 / 15秒 / 30秒`。
 - **每轮对话完成自动播报（10 秒自动关闭）**：
   - 每次模型思考生成结束后，自动弹出椭圆气泡展示**本轮消耗额度变化（如 `5h -1.8%`）**、最新剩余额度与**本轮新增 Token**，**10 秒后自动收起**（也可点击气泡提前关闭，支持在设置中开关）。
 - **右键遥测详情卡片 · 📅 每日 Token 统计 · 独立「⚙️ 挂件设置」面板**：
-  - **右键点击形象**打开完整详情浮窗（上下文长度 + 服务端分桶构成 + 本对话 Token 与缓存命中率 + 模型 5h / 周剩余额度），底部提供 **`📅 每日 Token`**（近 18 周贡献热力图 + 点击单日详情 + **`📊 详情`** 7/14/30 天完整分解弹窗，感谢 PR #7 [@Akar1Sk](https://github.com/Akar1Sk)）、**`🔍 上下文观察窗口`**、**`🔄 刷新`** 与独立的 **`⚙️ 挂件设置`** 按钮。
-  - 修复深度推理模型把思考 Token 或轮询延迟计入生成速度导致的 `tok/s` 虚高问题（改用 `responseOutputTokens` 中位数采样，Windows `.bat` 一键脚本亦已通过 `.gitattributes` 统一为 CRLF）。
+  - **右键点击形象**打开完整详情浮窗（上下文长度 + 服务端分桶构成 + 本对话 Token 与缓存命中率 + 模型 `5h 额度` / `周额度`），底部提供 **`📅 每日 Token 统计`**（近 18 周贡献热力图 + 点击单日详情 + **`📊 详情`** 7/14/30 天完整分解弹窗，感谢 PR #7 [@Akar1Sk](https://github.com/Akar1Sk)）、**`🔍 上下文观察窗口`**、**`🔄 刷新`** 与独立的 **`⚙️ 挂件设置`** 按钮。
+  - 修复深度推理模型把思考 Token 或轮询延迟计入生成速度导致的 `tok/s` 虚高问题（Issues #8 感谢 [@NAGOTOXIMU](https://github.com/NAGOTOXIMU)，改用 `responseOutputTokens` 中位数采样）、修复 Windows `.bat` 一键脚本换行（Issues #1）并完善 MIT License（Issues #2）。
   - **挂件设置支持全部个性化定制**：
     - 📏 **挂件大小**（`64px` ~ `180px`，默认 `112px`）与 👁 **透明度**（`35%` ~ `100%`）滑块实时预览；
     - 💭 **气泡大小** 按钮调节（`－` / `小` / `默认` / `大` / `超大` / `＋`，支持 `65%` ~ `160%` 实时缩放）；
+    - ⏱️ **互动气泡自动收起** 时长切换（`关闭` / `5秒` / `8秒` / `15秒` / `30秒`）；
     - 🎨 **默认皮肤**：内置 **`💜 经典紫瞳`** 与 **`💗💛 粉金异瞳`** 两套统一基底五帧差分皮肤一键切换；
     - 🖼️ **自定义形象**：分别上传修改 `更改主形象` / `思考差分` / `戳一戳差分` / `彩蛋差分` / `确认差分`，支持一键 `↺ 恢复默认`；
     - 💬 **自定义气泡对话**（输入框 + `+ 添加对话` 按钮，支持逐条删除与动态数据占位符）；
@@ -258,7 +260,7 @@ git pull origin main
 │   └── SKILL.md                     # 对话内快捷调用 Antigravity Skill
 ├── src/
 │   └── asar_patcher.js              # ASAR 无损重写与 SHA-256 块校验器
-├── plugin.json                      # Antigravity 插件元信息 (v1.3.0)
+├── plugin.json                      # Antigravity 插件元信息 (v1.4.0)
 ├── setup.cjs                        # 安装 / 暂存 / 状态检查 / 自检 / 卸载主程序
 ├── LICENSE                          # MIT 开源许可证
 ├── 双击安装观察窗补丁.bat             # Windows 一键安装脚本
@@ -273,6 +275,8 @@ git pull origin main
 - [`MeteorNOX/DeepSeek-Balance-Whale-Widget`](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（Q 弹按压手感、三段式椭圆思考气泡、每轮消耗冒泡、Web Audio 预解码与空闲挂起、IME 组字避让、四边吸附与左翻）
 - [`Void-LifeStream/dsh-gemini-kitten-widget`](https://github.com/Void-LifeStream/dsh-gemini-kitten-widget)（Gemini 猫娘挂件视觉参考、锚点定位与额度展示）
 - [`Akar1Sk`](https://github.com/Akar1Sk)（[PR #7](https://github.com/yunjuanyunshu114-byte/antigravity-observer/pull/7)：每日 Token 统计、18 周热力图面板与 7/14/30 天详细分解弹窗）
+- [`a5307314`](https://github.com/a5307314)（[Issue #5](https://github.com/yunjuanyunshu114-byte/antigravity-observer/issues/5)：连续摸头三段式气泡循环、气泡自动收起与 5h/周重置时间区分显示建议）
+- [`NAGOTOXIMU`](https://github.com/NAGOTOXIMU)（[Issue #8](https://github.com/yunjuanyunshu114-byte/antigravity-observer/issues/8)：推理模型 `tok/s` 测速口径分析与修复建议）
 - [`Sutera-Diffusus/dsh-whale-musume`](https://github.com/Sutera-Diffusus/dsh-whale-musume)（静默待机与互动彩蛋理念）
 - [`subamanis/agy-cockpit`](https://github.com/subamanis/agy-cockpit)、[`n2ns/antigravity-panel`](https://github.com/n2ns/antigravity-panel)、[`YashjitPal/BetterGravity`](https://github.com/YashjitPal/BetterGravity)、[`qqxpee/antigravity2-cn`](https://github.com/qqxpee/antigravity2-cn)
 

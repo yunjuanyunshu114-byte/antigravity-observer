@@ -39,6 +39,7 @@
       showStatsBar: true,
       size: 112,
       bubbleScale: 1,
+      bubbleAutoHideSec: 8,
       opacity: 1,
       soundEnabled: true,
       soundSet: 'boing',
@@ -147,6 +148,10 @@
       merged.size = Number.isFinite(sz) ? Math.max(64, Math.min(200, Math.round(sz))) : DEFAULT_PREFS.size;
       const bs = Number(merged.bubbleScale);
       merged.bubbleScale = Number.isFinite(bs) ? Math.max(0.65, Math.min(1.6, Math.round(bs * 100) / 100)) : 1;
+      const bAuto = Number(merged.bubbleAutoHideSec);
+      merged.bubbleAutoHideSec = Number.isFinite(bAuto)
+        ? (bAuto <= 0 ? 0 : Math.max(3, Math.min(60, Math.round(bAuto))))
+        : DEFAULT_PREFS.bubbleAutoHideSec;
       const op = Number(merged.opacity);
       merged.opacity = Number.isFinite(op) ? Math.max(0.35, Math.min(1, Math.round(op * 100) / 100)) : 1;
       merged.soundEnabled = merged.soundEnabled !== false;
