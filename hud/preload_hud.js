@@ -10,7 +10,8 @@
       style: 'gemini-neko-hud-style',
       stats: 'gemini-neko-stats-bar',
       petRoot: 'gemini-neko-pet-root',
-      modal: 'gemini-neko-observer-modal'
+      modal: 'gemini-neko-observer-modal',
+      dailyModal: 'gemini-neko-daily-modal'
     };
 
     const PAT_CURSOR_SVG = encodeURIComponent(
@@ -581,6 +582,105 @@
 .gn-btn-primary:hover {
   filter: brightness(1.08);
 }
+.gn-gh-wrap {
+  margin-top: 9px;
+  padding: 8px 6px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--foreground, #fff) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, rgba(255,255,255,0.1)) 85%, transparent);
+}
+.gn-gh-months {
+  position: relative;
+  height: 13px;
+  margin-left: 19px;
+  font-size: 9.5px;
+  color: var(--muted-foreground, #94a3b8);
+  line-height: 13px;
+  margin-bottom: 3px;
+}
+.gn-gh-month {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+.gn-gh-grid-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+}
+.gn-gh-weekdays {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  gap: 2px;
+  width: 15px;
+  flex-shrink: 0;
+  font-size: 9px;
+  line-height: 12px;
+  color: var(--muted-foreground, #94a3b8);
+  text-align: right;
+  padding-right: 1px;
+}
+.gn-gh-weeks {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.gn-gh-col {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  gap: 2px;
+}
+.gn-gh-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2.5px;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--foreground, #888) 8%, transparent);
+  transition: transform 0.1s ease, outline-color 0.1s ease;
+}
+.gn-gh-cell.is-future {
+  visibility: hidden;
+  pointer-events: none;
+}
+.gn-gh-cell:hover,
+.gn-gh-cell.is-selected {
+  outline: 1.5px solid #8b5cf6;
+  outline-offset: 1px;
+  transform: scale(1.08);
+  position: relative;
+  z-index: 2;
+}
+.gn-gh-legend {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 9.5px;
+  color: var(--muted-foreground, #94a3b8);
+}
+.gn-gh-legend-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.gn-gh-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+  border: 1px solid color-mix(in srgb, var(--foreground, #888) 8%, transparent);
+}
+.gn-gh-detail {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground, #fff) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, rgba(255,255,255,0.1)) 85%, transparent);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
 .gn-set-row {
   margin-top: 8px;
   padding-top: 8px;
@@ -680,8 +780,9 @@
   }
 }
 
-/* Full Context Observation Modal (反重力上下文观察窗口) */
-#${IDS.modal} {
+/* Full Context Observation Modal & Daily Token Modal */
+#${IDS.modal},
+#${IDS.dailyModal} {
   position: fixed;
   inset: 0;
   z-index: 2147483100;
@@ -694,12 +795,84 @@
   -webkit-app-region: no-drag;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
-#${IDS.modal}.is-open {
+#${IDS.modal}.is-open,
+#${IDS.dailyModal}.is-open {
   display: flex;
 }
-#${IDS.modal} * {
+#${IDS.modal} *,
+#${IDS.dailyModal} * {
   box-sizing: border-box;
   -webkit-app-region: no-drag;
+}
+.gn-daily-row {
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--foreground, #fff) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border, #ffffff12) 85%, transparent);
+}
+.gn-daily-row + .gn-daily-row {
+  margin-top: 7px;
+}
+.gn-daily-row.is-today {
+  border-color: rgba(139, 92, 246, 0.45);
+  background: rgba(139, 92, 246, 0.08);
+}
+.gn-daily-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.gn-daily-date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+.gn-daily-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.22);
+  color: #c4b5fd;
+}
+.gn-daily-bar-wrap {
+  margin-top: 6px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground, #fff) 8%, transparent);
+  overflow: hidden;
+  display: flex;
+}
+.gn-daily-seg {
+  height: 100%;
+  transition: width 0.22s ease;
+}
+.gn-daily-sub {
+  margin-top: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 10px;
+  font-size: 10.5px;
+  color: var(--muted-foreground, #94a3b8);
+}
+.gn-daily-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 10.5px;
+  color: var(--muted-foreground, #94a3b8);
+}
+.gn-daily-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-right: 4px;
+  vertical-align: middle;
 }
 .gn-modal-card {
   width: min(760px, 95vw);
@@ -962,13 +1135,21 @@
       modalConvId: '',
       modalBreakdown: null,
       modalConvList: [],
+      dailyModalOpen: false,
+      dailyDays: 14,
+      dailyData: null,
+      dailyLoading: false,
       pollTimer: null,
       // Pet runtime state
       composing: false,
       bubbleStage: 0, // 0 = closed, 1 = quota & context, 2 = dialogue line, 3 = turn-end quota cost (10s), 4 = review/confirm alert
       currentDialogue: '',
       lastDialogueText: '',
-      panelMode: '', // '' | 'card' (Image 4) | 'settings'
+      panelMode: '', // '' | 'card' (Image 4) | 'settings' | 'daily'
+      lastCardHeight: 0,
+      dailyPanelData: null,
+      dailyPanelLoading: false,
+      dailySelectedDate: '',
       pokeUntil: 0,
       pokeTimer: null,
       celebrateUntil: 0,
@@ -1803,7 +1984,9 @@
             hud.state = data;
             ensureStatsBar();
             if (hud.modalOpen) renderObserverModal();
+            if (hud.dailyModalOpen) loadDailyTokensData(true);
             if (hud.panelMode === 'card') renderTelemetryCard();
+            else if (hud.panelMode === 'daily') loadDailyHeatmapData(true);
           }
         } catch {}
 
@@ -2127,6 +2310,8 @@
         renderTelemetryCard();
       } else if (hud.panelMode === 'settings') {
         renderSettingsPanel();
+      } else if (hud.panelMode === 'daily') {
+        renderDailyHeatmapPanel();
       }
       renderThoughtBubbleContent(false);
     }
@@ -2273,16 +2458,271 @@
           <button type="button" class="gn-btn gn-btn-primary" data-gn-pet="open-observer">🔍 上下文观察窗口</button>
           <button type="button" class="gn-btn" data-gn-pet="refresh">🔄 刷新</button>
           <button type="button" class="gn-btn" data-gn-pet="open-settings">⚙️ 挂件设置</button>
+          <button type="button" class="gn-btn" style="flex:0 0 100%;width:100%;" data-gn-pet="open-daily-tokens">📅 每日 Token 统计</button>
         </div>
       `;
 
       if (panel.__gnCardHtml !== html || panel.getAttribute('data-mode') !== 'card') {
         const prevTop = panel.scrollTop || 0;
+        panel.style.minHeight = '';
+        panel.style.display = '';
+        panel.style.flexDirection = '';
         panel.setAttribute('data-mode', 'card');
         panel.__gnCardHtml = html;
         panel.innerHTML = html;
         panel.scrollTop = prevTop;
       }
+      const cardH = panel.offsetHeight;
+      if (cardH > 180) hud.lastCardHeight = cardH;
+    }
+
+    function isPanelLightTheme(panel) {
+      try {
+        const bg = window.getComputedStyle(panel).backgroundColor || '';
+        const m = /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(bg);
+        if (m) {
+          const lum = 0.299 * Number(m[1]) + 0.587 * Number(m[2]) + 0.114 * Number(m[3]);
+          return lum > 140;
+        }
+      } catch {}
+      return false;
+    }
+
+    function fmtLocalDateKey(dt) {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const d = String(dt.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function computeGhLevel(tokens, refMax) {
+      const v = Number(tokens) || 0;
+      if (v <= 0 || refMax <= 0) return 0;
+      const ratio = Math.min(1, Math.sqrt(v / refMax));
+      if (ratio <= 0.35) return 1;
+      if (ratio <= 0.60) return 2;
+      if (ratio <= 0.82) return 3;
+      return 4;
+    }
+
+    function buildGhDetailHtml(dayObj, fallbackDate) {
+      if (!dayObj || (Number(dayObj.totalTokens) || 0) <= 0) {
+        const dStr = (dayObj && dayObj.date) || fallbackDate || '—';
+        const tag = (dayObj && (dayObj.isToday ? '今天' : (dayObj.isYesterday ? '昨天' : dayObj.weekday))) || '';
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="gn-mono" style="font-weight:700;">${esc(dStr)}${tag ? ` (${esc(tag)})` : ''}</span>
+            <span class="gn-mono" style="opacity:.65;">0 tok</span>
+          </div>
+          <div style="opacity:.65;margin-top:2px;">当日暂无模型 Token 消耗记录</div>
+        `;
+      }
+      const tag = dayObj.isToday ? '今天' : (dayObj.isYesterday ? '昨天' : dayObj.weekday);
+      const hitStr = dayObj.cacheHitPct !== null && dayObj.cacheHitPct !== undefined ? `命中 ${dayObj.cacheHitPct}%` : '';
+      const subParts = [
+        `新 ${fmtTok(dayObj.inputTokens)}`,
+        `缓 ${fmtTok(dayObj.cacheReadTokens)}`,
+        `出 ${fmtTok(dayObj.outputTokens)}`,
+        hitStr
+      ].filter(Boolean);
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <span class="gn-mono" style="font-weight:700;">${esc(dayObj.date)}${tag ? ` (${esc(tag)})` : ''}</span>
+          <span class="gn-mono" style="font-weight:800;color:#10b981;">${fmtTok(dayObj.totalTokens)} tok</span>
+        </div>
+        <div class="gn-mono" style="opacity:.82;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          ${esc(subParts.join(' · '))}
+        </div>
+      `;
+    }
+
+    async function loadDailyHeatmapData(forceRefresh = false) {
+      hud.dailyPanelLoading = true;
+      if (hud.panelMode === 'daily') renderDailyHeatmapPanel();
+      try {
+        const res = await ipcRenderer.invoke('neko-hud:get-daily-tokens', 140, Boolean(forceRefresh));
+        if (res && res.ok) {
+          hud.dailyPanelData = res;
+        }
+      } catch {} finally {
+        hud.dailyPanelLoading = false;
+        if (hud.panelMode === 'daily') renderDailyHeatmapPanel();
+      }
+    }
+
+    function updateDailyHeatmapSelection(dateKey) {
+      const root = document.getElementById(IDS.petRoot);
+      if (!root || hud.panelMode !== 'daily') return;
+      const panel = root.querySelector('.gn-panel');
+      if (!panel) return;
+      hud.dailySelectedDate = dateKey;
+
+      const cells = panel.querySelectorAll('.gn-gh-cell[data-gn-gh-date]');
+      for (const c of cells) {
+        c.classList.toggle('is-selected', c.getAttribute('data-gn-gh-date') === dateKey);
+      }
+      const detailEl = panel.querySelector('#gn-gh-detail');
+      if (detailEl) {
+        const list = (hud.dailyPanelData && Array.isArray(hud.dailyPanelData.days)) ? hud.dailyPanelData.days : [];
+        const hit = list.find((d) => d.date === dateKey) || null;
+        detailEl.innerHTML = buildGhDetailHtml(hit, dateKey);
+      }
+    }
+
+    function renderDailyHeatmapPanel() {
+      const root = document.getElementById(IDS.petRoot);
+      if (!root || hud.panelMode !== 'daily') return;
+      const panel = root.querySelector('.gn-panel');
+      if (!panel) return;
+
+      panel.setAttribute('data-mode', 'daily');
+      panel.__gnCardHtml = '';
+      panel.style.minHeight = hud.lastCardHeight ? `${hud.lastCardHeight}px` : '';
+      panel.style.display = 'flex';
+      panel.style.flexDirection = 'column';
+
+      const data = hud.dailyPanelData;
+      const daysList = (data && Array.isArray(data.days)) ? data.days : [];
+      const dayMap = new Map();
+      for (const d of daysList) {
+        if (d && d.date) dayMap.set(d.date, d);
+      }
+
+      const now = new Date();
+      const todayKey = fmtLocalDateKey(now);
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayDow = todayMidnight.getDay(); // 0=Sun..6=Sat
+      const WEEKS = 18;
+      const startSunday = new Date(todayMidnight.getFullYear(), todayMidnight.getMonth(), todayMidnight.getDate() - todayDow - (WEEKS - 1) * 7);
+
+      const gridCols = [];
+      const nonZeroVals = [];
+      let gridTotal = 0;
+      let activeDaysInGrid = 0;
+      const monthMarks = [];
+      let lastMonthMarked = -1;
+
+      for (let w = 0; w < WEEKS; w++) {
+        const col = [];
+        for (let r = 0; r < 7; r++) {
+          const dt = new Date(startSunday.getFullYear(), startSunday.getMonth(), startSunday.getDate() + w * 7 + r);
+          const dk = fmtLocalDateKey(dt);
+          const isFuture = dt.getTime() > todayMidnight.getTime();
+          const info = (!isFuture && dayMap.get(dk)) || null;
+          const tok = info ? (Number(info.totalTokens) || 0) : 0;
+          if (!isFuture) {
+            gridTotal += tok;
+            if (tok > 0) {
+              nonZeroVals.push(tok);
+              activeDaysInGrid += 1;
+            }
+            if (dt.getDate() === 1 || (w === 0 && r === 0)) {
+              const mNum = dt.getMonth() + 1;
+              if (mNum !== lastMonthMarked) {
+                if (monthMarks.length === 0 || w - monthMarks[monthMarks.length - 1].col >= 2) {
+                  monthMarks.push({ col: w, label: `${mNum}月` });
+                }
+                lastMonthMarked = mNum;
+              }
+            }
+          }
+          col.push({ dk, isFuture, tok, info });
+        }
+        gridCols.push(col);
+      }
+
+      let refMax = 0;
+      if (nonZeroVals.length > 0) {
+        const sortedVals = [...nonZeroVals].sort((a, b) => a - b);
+        const idx90 = Math.min(sortedVals.length - 1, Math.floor((sortedVals.length - 1) * 0.9));
+        refMax = sortedVals.length >= 5 ? sortedVals[idx90] : sortedVals[sortedVals.length - 1];
+      }
+
+      const isLight = isPanelLightTheme(panel);
+      const palette = isLight
+        ? ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39']
+        : ['rgba(148, 163, 184, 0.14)', '#0e4429', '#006d32', '#26a641', '#39d353'];
+
+      const selectedKey = hud.dailySelectedDate || todayKey;
+      const selectedObj = dayMap.get(selectedKey) || null;
+      const todayObj = (data && data.today) || dayMap.get(todayKey) || null;
+      const todayTok = todayObj ? (Number(todayObj.totalTokens) || 0) : 0;
+
+      const colsHtml = gridCols.map((col) => `
+        <div class="gn-gh-col">
+          ${col.map((cell) => {
+            if (cell.isFuture) {
+              return `<span class="gn-gh-cell is-future"></span>`;
+            }
+            const lvl = computeGhLevel(cell.tok, refMax);
+            const bg = palette[lvl];
+            const isSel = cell.dk === selectedKey;
+            const titleText = `${cell.dk}: ${fmtTok(cell.tok)} tok`;
+            return `<span class="gn-gh-cell ${isSel ? 'is-selected' : ''}" data-gn-gh-date="${esc(cell.dk)}" title="${esc(titleText)}" style="background:${bg};"></span>`;
+          }).join('')}
+        </div>
+      `).join('');
+
+      const monthsHtml = monthMarks.map((m) => `<span class="gn-gh-month" style="left:${m.col * 14}px;">${esc(m.label)}</span>`).join('');
+
+      panel.innerHTML = `
+        <div class="gn-card-head">
+          <div class="gn-card-title">
+            <span>📅 每日 Token 统计</span>
+            ${hud.dailyPanelLoading ? `<span class="gn-state-tag">同步中…</span>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;">
+            <button type="button" class="gn-chip" data-gn-pet="open-daily-modal" title="打开详细每日 Token 统计窗口" style="padding:1px 6px;">📊 详情</button>
+            <button type="button" class="gn-chip" data-gn-pet="refresh-daily" title="刷新" style="padding:1px 6px;">🔄</button>
+            <button type="button" class="gn-chip" data-gn-pet="close-panel" title="关闭" style="padding:1px 6px;">×</button>
+          </div>
+        </div>
+
+        <div class="gn-card-sec">
+          <div class="gn-kv-grid">
+            <div class="gn-kv">
+              <div class="gn-kv-k">今日已用</div>
+              <div class="gn-kv-v gn-mono" style="color:#10b981;">${fmtTok(todayTok)} tok</div>
+            </div>
+            <div class="gn-kv">
+              <div class="gn-kv-k">近 ${WEEKS} 周累计</div>
+              <div class="gn-kv-v gn-mono">${fmtTok(gridTotal)} tok</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="gn-gh-wrap">
+          <div class="gn-gh-months">${monthsHtml}</div>
+          <div class="gn-gh-grid-row">
+            <div class="gn-gh-weekdays">
+              <span></span>
+              <span>一</span>
+              <span></span>
+              <span>三</span>
+              <span></span>
+              <span>五</span>
+              <span></span>
+            </div>
+            <div class="gn-gh-weeks">${colsHtml}</div>
+          </div>
+          <div class="gn-gh-legend">
+            <span>活跃 ${activeDaysInGrid} 天</span>
+            <div class="gn-gh-legend-swatches">
+              <span>少</span>
+              ${palette.map((c) => `<i class="gn-gh-swatch" style="background:${c};"></i>`).join('')}
+              <span>多</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="gn-gh-detail" id="gn-gh-detail">
+          ${buildGhDetailHtml(selectedObj, selectedKey)}
+        </div>
+
+        <div class="gn-card-actions" style="margin-top:auto;padding-top:10px;">
+          <button type="button" class="gn-btn" style="flex:0 0 100%;width:100%;" data-gn-pet="back-card">← 返回</button>
+        </div>
+      `;
     }
 
     function renderSettingsPanel() {
@@ -2307,6 +2747,9 @@
       const hasCustomFrame = Boolean(cf.idle || cf.eat || cf.xd || cf.grin || cf.wait);
       const curSkin = hud.prefs.skin === 'heterochromia' ? 'heterochromia' : 'purple';
 
+      panel.style.minHeight = '';
+      panel.style.display = '';
+      panel.style.flexDirection = '';
       panel.setAttribute('data-mode', 'settings');
       panel.__gnCardHtml = '';
       panel.innerHTML = `
@@ -2674,6 +3117,17 @@
             hud.panelMode = '';
             syncPanelVisibility();
             openObserverModal();
+          } else if (act === 'open-daily-tokens') {
+            hud.panelMode = 'daily';
+            hud.dailySelectedDate = '';
+            syncPanelVisibility();
+            loadDailyHeatmapData(true);
+          } else if (act === 'open-daily-modal') {
+            hud.panelMode = '';
+            syncPanelVisibility();
+            openDailyTokensModal();
+          } else if (act === 'refresh-daily') {
+            loadDailyHeatmapData(true);
           } else if (act === 'refresh') {
             refreshTelemetry(true);
           } else if (act === 'add-dialogue') {
@@ -2741,6 +3195,14 @@
             savePrefsPatch({ completionSound: !hud.prefs.completionSound });
             renderSettingsPanel();
           }
+          return;
+        }
+
+        const ghCellEl = e.target && e.target.closest ? e.target.closest('[data-gn-gh-date]') : null;
+        if (ghCellEl) {
+          e.stopPropagation();
+          const dk = ghCellEl.getAttribute('data-gn-gh-date');
+          if (dk) updateDailyHeatmapSelection(dk);
           return;
         }
 
@@ -2831,6 +3293,17 @@
           };
           savePrefsPatch({ anchor });
           renderSettingsPanel();
+        }
+      });
+
+      root.addEventListener('mouseover', (e) => {
+        if (hud.panelMode !== 'daily') return;
+        const ghCellEl = e.target && e.target.closest ? e.target.closest('[data-gn-gh-date]') : null;
+        if (ghCellEl) {
+          const dk = ghCellEl.getAttribute('data-gn-gh-date');
+          if (dk && dk !== hud.dailySelectedDate) {
+            updateDailyHeatmapSelection(dk);
+          }
         }
       });
 
@@ -2948,6 +3421,7 @@
     }
 
     async function openObserverModal() {
+      if (hud.dailyModalOpen) closeDailyTokensModal();
       const modal = ensureObserverModal();
       if (!modal) return;
       syncActiveConversation();
@@ -3143,6 +3617,192 @@
       }
     }
 
+    // ---- Component C: Daily Token Usage Modal ----
+    function ensureDailyTokensModal() {
+      let modal = document.getElementById(IDS.dailyModal);
+      if (modal || !document.body) return modal;
+      modal = document.createElement('div');
+      modal.id = IDS.dailyModal;
+      modal.innerHTML = `
+        <div class="gn-modal-card">
+          <div class="gn-modal-head">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;flex-wrap:wrap;">
+              <span style="font-size:15px;font-weight:800;white-space:nowrap;">📅 每日 Token 使用量</span>
+              <div style="display:flex;align-items:center;gap:4px;">
+                <button type="button" class="gn-chip" data-gn-daily-days="7">近 7 天</button>
+                <button type="button" class="gn-chip" data-gn-daily-days="14">近 14 天</button>
+                <button type="button" class="gn-chip" data-gn-daily-days="30">近 30 天</button>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button type="button" class="gn-chip" data-gn-daily-refresh="1">🔄 刷新</button>
+              <button type="button" class="gn-chip" data-gn-close-daily="1" style="font-size:14px;padding:4px 10px;">关闭 ×</button>
+            </div>
+          </div>
+          <div class="gn-modal-body" id="gn-daily-modal-body"></div>
+        </div>
+      `;
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal || e.target.closest('[data-gn-close-daily]')) {
+          closeDailyTokensModal();
+          return;
+        }
+        const rangeBtn = e.target.closest('[data-gn-daily-days]');
+        if (rangeBtn) {
+          const nextDays = Number(rangeBtn.getAttribute('data-gn-daily-days')) || 14;
+          if (nextDays !== hud.dailyDays) {
+            hud.dailyDays = nextDays;
+            loadDailyTokensData(false);
+          }
+          return;
+        }
+        if (e.target.closest('[data-gn-daily-refresh]')) {
+          loadDailyTokensData(true);
+        }
+      });
+      document.body.appendChild(modal);
+      return modal;
+    }
+
+    async function loadDailyTokensData(forceRefresh = false) {
+      const reqDays = hud.dailyDays || 14;
+      hud.dailyLoading = true;
+      renderDailyTokensModal();
+      try {
+        const res = await ipcRenderer.invoke('neko-hud:get-daily-tokens', reqDays, Boolean(forceRefresh));
+        if (hud.dailyDays === reqDays && res && res.ok) {
+          hud.dailyData = res;
+        }
+      } catch {} finally {
+        hud.dailyLoading = false;
+        renderDailyTokensModal();
+      }
+    }
+
+    async function openDailyTokensModal() {
+      if (hud.modalOpen) closeObserverModal();
+      const modal = ensureDailyTokensModal();
+      if (!modal) return;
+      hud.dailyModalOpen = true;
+      modal.classList.add('is-open');
+      renderDailyTokensModal();
+      await loadDailyTokensData(true);
+    }
+
+    function closeDailyTokensModal() {
+      hud.dailyModalOpen = false;
+      const modal = document.getElementById(IDS.dailyModal);
+      if (modal) modal.classList.remove('is-open');
+    }
+
+    function renderDailyTokensModal() {
+      const modal = document.getElementById(IDS.dailyModal);
+      if (!modal || !hud.dailyModalOpen) return;
+
+      const rangeBtns = modal.querySelectorAll('[data-gn-daily-days]');
+      for (const btn of rangeBtns) {
+        const d = Number(btn.getAttribute('data-gn-daily-days'));
+        btn.classList.toggle('is-active', d === (hud.dailyDays || 14));
+      }
+
+      const bodyEl = modal.querySelector('#gn-daily-modal-body');
+      if (!bodyEl) return;
+
+      const data = hud.dailyData;
+      if (!data) {
+        bodyEl.innerHTML = `<div class="gn-box" style="text-align:center;padding:24px 12px;opacity:.78;">${hud.dailyLoading ? '正在统计本地会话的每日 Token 使用量…' : '暂无每日 Token 统计数据'}</div>`;
+        return;
+      }
+
+      const today = data.today || { totalTokens: 0, inputTokens: 0, cacheReadTokens: 0, outputTokens: 0, rounds: 0, conversations: 0 };
+      const yesterday = data.yesterday || { totalTokens: 0, inputTokens: 0, cacheReadTokens: 0, outputTokens: 0, rounds: 0, conversations: 0 };
+      const rs = data.rangeSummary || { days: hud.dailyDays, totalTokens: 0, activeDays: 0, avgPerActiveDay: 0, peakTokens: 0, cacheHitPct: null };
+      const all = data.allTimeSummary || { totalTokens: 0, activeDays: 0 };
+      const days = Array.isArray(data.days) ? data.days : [];
+      const maxDayTokens = Math.max(1, Number(rs.peakTokens) || 0, ...days.map((d) => Number(d.totalTokens) || 0));
+
+      const bodyHtml = `
+        <div class="gn-stat-cards">
+          <div class="gn-box">
+            <div class="gn-kv-k">今日已用 Token</div>
+            <div class="gn-kv-v gn-mono" style="font-size:15px;color:#a78bfa;">${fmtTok(today.totalTokens)}</div>
+            <div class="gn-kv-k" style="margin-top:3px;">${today.conversations || 0} 对话 · ${today.rounds || 0} 轮</div>
+          </div>
+          <div class="gn-box">
+            <div class="gn-kv-k">昨日使用 Token</div>
+            <div class="gn-kv-v gn-mono" style="font-size:15px;">${fmtTok(yesterday.totalTokens)}</div>
+            <div class="gn-kv-k" style="margin-top:3px;">${yesterday.conversations || 0} 对话 · ${yesterday.rounds || 0} 轮</div>
+          </div>
+          <div class="gn-box">
+            <div class="gn-kv-k">近 ${rs.days} 天累计</div>
+            <div class="gn-kv-v gn-mono" style="font-size:15px;color:#38bdf8;">${fmtTok(rs.totalTokens)}</div>
+            <div class="gn-kv-k" style="margin-top:3px;">活跃 ${rs.activeDays}/${rs.days} 天${rs.cacheHitPct !== null ? ` · 命中 ${rs.cacheHitPct}%` : ''}</div>
+          </div>
+          <div class="gn-box">
+            <div class="gn-kv-k">活跃日均消耗</div>
+            <div class="gn-kv-v gn-mono" style="font-size:15px;color:#10b981;">${fmtTok(rs.avgPerActiveDay)}</div>
+            <div class="gn-kv-k" style="margin-top:3px;">历史总计 ${fmtTok(all.totalTokens)}</div>
+          </div>
+        </div>
+
+        <div class="gn-box">
+          <div class="gn-box-title">
+            <span>📆 最近 ${rs.days} 天每日明细${hud.dailyLoading ? ' (同步中…)' : ''}</span>
+            <div class="gn-daily-legend">
+              <span><i class="gn-daily-dot" style="background:#38bdf8;"></i>缓存读</span>
+              <span><i class="gn-daily-dot" style="background:#8b5cf6;"></i>新输入</span>
+              <span><i class="gn-daily-dot" style="background:#10b981;"></i>输出</span>
+            </div>
+          </div>
+          ${days.length > 0 ? days.map((d) => {
+            const tot = Number(d.totalTokens) || 0;
+            const barTotalPct = tot > 0 ? Math.max(2, Math.round((tot / maxDayTokens) * 1000) / 10) : 0;
+            const cacheW = tot > 0 ? Math.round(((d.cacheReadTokens || 0) / tot) * barTotalPct * 10) / 10 : 0;
+            const inW = tot > 0 ? Math.round(((d.inputTokens || 0) / tot) * barTotalPct * 10) / 10 : 0;
+            const outW = Math.max(0, Math.round((barTotalPct - cacheW - inW) * 10) / 10);
+            const tag = d.isToday ? '今天' : (d.isYesterday ? '昨天' : d.weekday);
+            const hitStr = d.cacheHitPct !== null && d.cacheHitPct !== undefined ? `命中 ${d.cacheHitPct}%` : '';
+            const modelStr = d.topModel ? `主力 ${d.topModel}` : '';
+            const subAgentStr = d.subagentTokens > 0 ? `含子代理 ${fmtTok(d.subagentTokens)}` : '';
+            return `
+              <div class="gn-daily-row ${d.isToday ? 'is-today' : ''}">
+                <div class="gn-daily-row-top">
+                  <div class="gn-daily-date">
+                    <span class="gn-mono">${esc(d.date)}</span>
+                    <span class="gn-daily-tag">${esc(tag)}</span>
+                    ${tot > 0 || d.rounds > 0 ? `<span style="font-size:10.5px;font-weight:500;opacity:.75;">${d.conversations || 0}会话 · ${d.rounds || 0}轮 · ${d.steps || 0}步</span>` : '<span style="font-size:10.5px;font-weight:500;opacity:.45;">无记录</span>'}
+                  </div>
+                  <div class="gn-mono" style="font-weight:800;font-size:12.5px;${tot === 0 ? 'opacity:.45;' : ''}">${tot > 0 ? `${fmtTok(tot)} tok` : '0 tok'}</div>
+                </div>
+                <div class="gn-daily-bar-wrap">
+                  ${cacheW > 0 ? `<div class="gn-daily-seg" style="width:${cacheW}%;background:#38bdf8;"></div>` : ''}
+                  ${inW > 0 ? `<div class="gn-daily-seg" style="width:${inW}%;background:#8b5cf6;"></div>` : ''}
+                  ${outW > 0 ? `<div class="gn-daily-seg" style="width:${outW}%;background:#10b981;"></div>` : ''}
+                </div>
+                ${tot > 0 ? `
+                  <div class="gn-daily-sub gn-mono">
+                    <span>新输入 ${fmtTok(d.inputTokens)} · 缓存 ${fmtTok(d.cacheReadTokens)} · 输出 ${fmtTok(d.outputTokens)}</span>
+                    <span>${[hitStr, modelStr, subAgentStr].filter(Boolean).map((s) => esc(s)).join(' · ')}</span>
+                  </div>
+                ` : ''}
+              </div>`;
+          }).join('') : '<div style="font-size:11.5px;opacity:.65;">暂无记录</div>'}
+        </div>
+
+        <div style="font-size:11px;opacity:.68;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+          <span>按本地时间自然日统计全部本地会话 transcript（含子代理）；按 Esc 关闭窗口。</span>
+          <span class="gn-mono">${rs.peakDate ? `峰值 ${esc(rs.peakDate)} (${fmtTok(rs.peakTokens)})` : ''}${data.fallback ? ' · 本地直读兜底' : ''}</span>
+        </div>
+      `;
+
+      if (bodyEl.__gnDailyHtml !== bodyHtml) {
+        const prevTop = bodyEl.scrollTop || 0;
+        bodyEl.__gnDailyHtml = bodyHtml;
+        bodyEl.innerHTML = bodyHtml;
+        bodyEl.scrollTop = prevTop;
+      }
+    }
+
     // ---- Telemetry Loop ----
     let refreshInFlight = false;
     async function refreshTelemetry(force = false) {
@@ -3260,11 +3920,12 @@
         document.addEventListener('click', (e) => {
           const petRoot = document.getElementById(IDS.petRoot);
           const modalEl = document.getElementById(IDS.modal);
+          const dailyModalEl = document.getElementById(IDS.dailyModal);
           if (hud.panelMode && petRoot && !petRoot.contains(e.target)) {
             hud.panelMode = '';
             syncPanelVisibility();
           }
-          if ((petRoot && petRoot.contains(e.target)) || (modalEl && modalEl.contains(e.target))) {
+          if ((petRoot && petRoot.contains(e.target)) || (modalEl && modalEl.contains(e.target)) || (dailyModalEl && dailyModalEl.contains(e.target))) {
             return;
           }
           if (hud.activeReview && isConfirmControlTarget(e.target)) {
@@ -3280,6 +3941,10 @@
         document.addEventListener('keydown', (e) => {
           if (e.target && e.target.id === 'gn-custom-dialogue-input') return;
           if (e.key === 'Escape') {
+            if (hud.dailyModalOpen) {
+              closeDailyTokensModal();
+              return;
+            }
             if (hud.modalOpen) {
               closeObserverModal();
               return;

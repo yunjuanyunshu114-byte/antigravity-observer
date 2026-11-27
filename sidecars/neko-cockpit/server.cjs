@@ -463,6 +463,46 @@ function calcExactCacheHitPct(inTok, cacheTok) {
   return Math.round(pct * 10) / 10;
 }
 
+const WEEKDAY_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function formatLocalDateKey(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const d = new Date(n);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getWeekdayZh(dateKey) {
+  if (!dateKey || typeof dateKey !== 'string') return '';
+  const parts = dateKey.split('-');
+  if (parts.length !== 3) return '';
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!y || !m || !d) return '';
+  const dt = new Date(y, m - 1, d);
+  return WEEKDAY_ZH[dt.getDay()] || '';
+}
+
+function ensureDailyBucket(entry, dateKey) {
+  if (!entry || !dateKey) return null;
+  if (!entry.dailyUsage || typeof entry.dailyUsage !== 'object') {
+    entry.dailyUsage = {};
+  }
+  let bucket = entry.dailyUsage[dateKey];
+  if (!bucket || typeof bucket !== 'object') {
+    bucket = { inTok: 0, cacheTok: 0, outTok: 0, rounds: 0, steps: 0, models: {} };
+    entry.dailyUsage[dateKey] = bucket;
+  } else if (!bucket.models || typeof bucket.models !== 'object') {
+    bucket.models = {};
+  }
+  return bucket;
+}
+
 function computeMedian(values) {
   if (!Array.isArray(values) || values.length === 0) return 0;
   const sorted = [...values].filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
@@ -1051,6 +1091,8 @@ function createEmptyEntry(convId) {
     lastPlannerCreatedMs: 0,
     lastStepSpeedTokPerSec: 0,
     lastPlannerStepTok: null,
+    lastPlannerStepDateKey: '',
+    dailyUsage: {},
     lastHandoffRequestStepIndex: -1,
     lastHandoffStepIndex: -1,
     lastHandoffCompletedStepIndex: -1,
@@ -1241,7 +1283,7 @@ function extractMentionedCommits(entry, text) {
   }
 }
 
-function processTranscriptLine(entry, line, isFirstLine) {
+function processTranscriptLine(entry, line, isFirstLine, fallbackMtimeMs = 0) {
   if (!line || line.length < 2) return false;
 
   const hasUser = line.includes('"type":"USER_INPUT"');
@@ -1391,6 +1433,11 @@ function processTranscriptLine(entry, line, isFirstLine) {
         if (stepIdx >= 0) entry.lastParsedStepIndex = stepIdx;
         entry.promptCount += 1;
         entry.promptsSinceLastCompact += 1;
+        if (!entry.isSubagent) {
+          const uDayKey = formatLocalDateKey(createdMs || entry.lastActiveMs || entry.mtimeMs || fallbackMtimeMs);
+          const uBucket = ensureDailyBucket(entry, uDayKey);
+          if (uBucket) uBucket.rounds = (uBucket.rounds || 0) + 1;
+        }
         if (!entry.firstPrompt) entry.firstPrompt = clean.slice(0, 500);
         entry.lastPrompt = clean.slice(0, 500);
         entry.prompts.push({
@@ -1465,13 +1512,35 @@ function processTranscriptLine(entry, line, isFirstLine) {
     const deltaIn = effInTok - prevTok.inTok;
     const deltaCache = effCacheTok - prevTok.cacheTok;
     const deltaOut = effOutTok - prevTok.outTok;
+    const rawDateKey = formatLocalDateKey(createdMs || entry.lastActiveMs || entry.mtimeMs || fallbackMtimeMs);
+    const hasPrevStepTok = Boolean(
+      isRepeatStep &&
+      entry.lastPlannerStepTok &&
+      (entry.lastPlannerStepTok.inTok > 0 || entry.lastPlannerStepTok.cacheTok > 0 || entry.lastPlannerStepTok.outTok > 0)
+    );
+    const stepDateKey = (hasPrevStepTok && entry.lastPlannerStepDateKey) ? entry.lastPlannerStepDateKey : rawDateKey;
+    const dBucket = ensureDailyBucket(entry, stepDateKey);
+    if (dBucket && !isRepeatStep) {
+      dBucket.steps = (dBucket.steps || 0) + 1;
+    }
     if (deltaIn !== 0 || deltaCache !== 0 || deltaOut !== 0) {
       entry.totalInputTokens = Math.max(0, (entry.totalInputTokens || 0) + deltaIn);
       entry.totalCacheReadTokens = Math.max(0, (entry.totalCacheReadTokens || 0) + deltaCache);
       entry.totalOutputTokens = Math.max(0, (entry.totalOutputTokens || 0) + deltaOut);
       entry.totalTokens = entry.totalInputTokens + entry.totalCacheReadTokens + entry.totalOutputTokens;
+      if (dBucket) {
+        dBucket.inTok = Math.max(0, (dBucket.inTok || 0) + deltaIn);
+        dBucket.cacheTok = Math.max(0, (dBucket.cacheTok || 0) + deltaCache);
+        dBucket.outTok = Math.max(0, (dBucket.outTok || 0) + deltaOut);
+        const deltaTot = deltaIn + deltaCache + deltaOut;
+        const rawModel = typeof obj.model === 'string' && obj.model.trim() ? obj.model.trim() : '';
+        if (rawModel && deltaTot !== 0) {
+          dBucket.models[rawModel] = Math.max(0, (dBucket.models[rawModel] || 0) + deltaTot);
+        }
+      }
     }
     entry.lastPlannerStepTok = { inTok: effInTok, cacheTok: effCacheTok, outTok: effOutTok };
+    entry.lastPlannerStepDateKey = stepDateKey;
     if (effOutTok > 0 && entry.lastPlannerCreatedMs > 0) {
       const nowGapSec = Math.max(0.4, (Date.now() - entry.lastPlannerCreatedMs) / 1000);
       if (nowGapSec <= 120) {
@@ -2042,7 +2111,7 @@ function updateTranscriptEntry(convId, transcriptPath, existingEntry, preStat) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
-    if (processTranscriptLine(entry, line, isFirstLine)) {
+    if (processTranscriptLine(entry, line, isFirstLine, stat.mtimeMs)) {
       corpusDirty = true;
     }
     isFirstLine = false;
@@ -3313,8 +3382,11 @@ class AgyCockpitServer {
               this.migratedUnreadFlags.add(item.id);
             }
           }
-        } else if (raw && (raw.version === 18 || raw.version === 19) && Array.isArray(raw.entries)) {
-          const isV19 = raw.version === 19;
+        } else if (raw && (raw.version === 18 || raw.version === 19 || raw.version === 20) && Array.isArray(raw.entries)) {
+          const isV19Plus = raw.version >= 19;
+          const curTzOffset = new Date().getTimezoneOffset();
+          const hasMatchingTz = raw.version === 20 && raw.tzOffsetMin === curTzOffset;
+          let needsResave = !hasMatchingTz;
           for (const item of raw.entries) {
             if (item && typeof item.id === 'string') {
               item.lastLineOffset = typeof item.lastLineOffset === 'number' ? item.lastLineOffset : 0;
@@ -3328,9 +3400,9 @@ class AgyCockpitServer {
                 item.lastHandoffRequestStepIndex = item.lastParsedStepIndex;
               }
               delete item.handoffUpdatedInPass;
-              item.projectId = isV19 ? (item.projectId || '') : '';
-              item.workspacePath = isV19 ? (item.workspacePath || '') : '';
-              item.lsSummary = isV19 ? (item.lsSummary || '') : '';
+              item.projectId = isV19Plus ? (item.projectId || '') : '';
+              item.workspacePath = isV19Plus ? (item.workspacePath || '') : '';
+              item.lsSummary = isV19Plus ? (item.lsSummary || '') : '';
               item.lastUserInputMs = item.lastUserInputMs || 0;
               item.lastSeenMs = item.lastSeenMs || 0;
               item.manualUnreadAtMs = item.manualUnreadAtMs || 0;
@@ -3349,6 +3421,18 @@ class AgyCockpitServer {
               item.modelEnum = item.modelEnum || '';
               item.modelLabel = item.modelLabel || '';
               item.modelResolvedMtimeMs = item.modelResolvedMtimeMs || 0;
+              const hasValidDailySchema = hasMatchingTz && item.dailyUsage && typeof item.dailyUsage === 'object';
+              if (hasValidDailySchema) {
+                item.lastPlannerStepDateKey = typeof item.lastPlannerStepDateKey === 'string' ? item.lastPlannerStepDateKey : '';
+              } else {
+                item.parsedBytes = 0;
+                item.lastLineOffset = 0;
+                item.size = 0;
+                item.mtimeMs = 0;
+                item.dailyUsage = {};
+                item.lastPlannerStepDateKey = '';
+                needsResave = true;
+              }
               rebuildSearchCorpus(item);
               this.convCache.set(item.id, item);
             }
@@ -3356,7 +3440,7 @@ class AgyCockpitServer {
           if (this.convCache.size > 0) {
             this.initialBootScanDone = true;
           }
-          if (!isV19) {
+          if (needsResave) {
             this.scheduleSaveIndexCache();
           }
         }
@@ -3372,7 +3456,12 @@ class AgyCockpitServer {
     this.indexCacheDirty = false;
     try {
       const entries = [...this.convCache.values()];
-      writeJsonAtomic(this.indexCachePath, { version: 19, savedAt: Date.now(), entries });
+      writeJsonAtomic(this.indexCachePath, {
+        version: 20,
+        tzOffsetMin: new Date().getTimezoneOffset(),
+        savedAt: Date.now(),
+        entries
+      });
     } catch {}
   }
 
@@ -6848,6 +6937,215 @@ class AgyCockpitServer {
     };
   }
 
+  handleDailyTokens(query = {}) {
+    const reqDays = Math.max(1, Math.min(366, parseInt(String(query.days || '14'), 10) || 14));
+    this.refreshIndex({ force: query.refresh === '1' });
+
+    const byDate = new Map();
+    const allTime = {
+      totalTokens: 0,
+      inputTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 0,
+      activeDates: new Set()
+    };
+
+    const getOrInitAgg = (dateKey) => {
+      let agg = byDate.get(dateKey);
+      if (!agg) {
+        agg = {
+          date: dateKey,
+          inputTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          subagentTokens: 0,
+          conversations: 0,
+          subagentConversations: 0,
+          rounds: 0,
+          steps: 0,
+          models: new Map()
+        };
+        byDate.set(dateKey, agg);
+      }
+      return agg;
+    };
+
+    for (const entry of this.convCache.values()) {
+      if (!entry || this.deletedConvIds.has(entry.id)) continue;
+      const daily = entry.dailyUsage;
+      if (!daily || typeof daily !== 'object') continue;
+      for (const [dateKey, b] of Object.entries(daily)) {
+        if (!b || typeof b !== 'object' || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) continue;
+        const inTok = Number(b.inTok) || 0;
+        const cacheTok = Number(b.cacheTok) || 0;
+        const outTok = Number(b.outTok) || 0;
+        const totTok = inTok + cacheTok + outTok;
+        const rounds = Number(b.rounds) || 0;
+        const steps = Number(b.steps) || 0;
+        if (totTok <= 0 && rounds <= 0 && steps <= 0) continue;
+
+        const agg = getOrInitAgg(dateKey);
+        agg.inputTokens += inTok;
+        agg.cacheReadTokens += cacheTok;
+        agg.outputTokens += outTok;
+        agg.totalTokens += totTok;
+        agg.steps += steps;
+
+        if (entry.isSubagent) {
+          agg.subagentTokens += totTok;
+          if (totTok > 0) agg.subagentConversations += 1;
+        } else {
+          agg.rounds += rounds;
+          if (totTok > 0 || rounds > 0) agg.conversations += 1;
+        }
+
+        if (b.models && typeof b.models === 'object') {
+          for (const [mKey, mTok] of Object.entries(b.models)) {
+            const val = Number(mTok) || 0;
+            if (!mKey || val <= 0) continue;
+            const lbl = this.lookupModelLabel(mKey) || mKey;
+            agg.models.set(lbl, (agg.models.get(lbl) || 0) + val);
+          }
+        }
+
+        allTime.inputTokens += inTok;
+        allTime.cacheReadTokens += cacheTok;
+        allTime.outputTokens += outTok;
+        allTime.totalTokens += totTok;
+        if (totTok > 0) allTime.activeDates.add(dateKey);
+      }
+    }
+
+    const nowDate = new Date();
+    const days = [];
+    let rangeInput = 0;
+    let rangeCache = 0;
+    let rangeOutput = 0;
+    let rangeTotal = 0;
+    let rangeActiveDays = 0;
+    let peakDate = '';
+    let peakTokens = 0;
+
+    for (let i = 0; i < reqDays; i++) {
+      const dt = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - i);
+      const dateKey = formatLocalDateKey(dt.getTime());
+      const agg = byDate.get(dateKey);
+      const inTok = agg ? agg.inputTokens : 0;
+      const cacheTok = agg ? agg.cacheReadTokens : 0;
+      const outTok = agg ? agg.outputTokens : 0;
+      const totTok = agg ? agg.totalTokens : 0;
+      const modelsList = agg
+        ? [...agg.models.entries()]
+            .map(([model, tokens]) => ({ model, tokens }))
+            .sort((a, b) => b.tokens - a.tokens)
+            .slice(0, 6)
+        : [];
+      const dayItem = {
+        date: dateKey,
+        shortDate: dateKey.slice(5),
+        weekday: getWeekdayZh(dateKey),
+        isToday: i === 0,
+        isYesterday: i === 1,
+        totalTokens: totTok,
+        inputTokens: inTok,
+        cacheReadTokens: cacheTok,
+        outputTokens: outTok,
+        subagentTokens: agg ? agg.subagentTokens : 0,
+        cacheHitPct: calcExactCacheHitPct(inTok, cacheTok),
+        conversations: agg ? agg.conversations : 0,
+        subagentConversations: agg ? agg.subagentConversations : 0,
+        rounds: agg ? agg.rounds : 0,
+        steps: agg ? agg.steps : 0,
+        topModel: modelsList.length > 0 ? modelsList[0].model : '',
+        models: modelsList
+      };
+      days.push(dayItem);
+
+      rangeInput += inTok;
+      rangeCache += cacheTok;
+      rangeOutput += outTok;
+      rangeTotal += totTok;
+      if (totTok > 0) rangeActiveDays += 1;
+      if (totTok > peakTokens) {
+        peakTokens = totTok;
+        peakDate = dateKey;
+      }
+    }
+
+    const today = days[0] || null;
+    const yesterday = days[1] || null;
+    let fallbackYesterday = null;
+    if (!yesterday) {
+      const yDt = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - 1);
+      const yKey = formatLocalDateKey(yDt.getTime());
+      const yAgg = byDate.get(yKey);
+      if (yAgg) {
+        const yIn = yAgg.inputTokens;
+        const yCache = yAgg.cacheReadTokens;
+        const yOut = yAgg.outputTokens;
+        const yTot = yAgg.totalTokens;
+        const yModels = [...yAgg.models.entries()]
+          .map(([model, tokens]) => ({ model, tokens }))
+          .sort((a, b) => b.tokens - a.tokens)
+          .slice(0, 6);
+        fallbackYesterday = {
+          date: yKey,
+          shortDate: yKey.slice(5),
+          weekday: getWeekdayZh(yKey),
+          isToday: false,
+          isYesterday: true,
+          totalTokens: yTot,
+          inputTokens: yIn,
+          cacheReadTokens: yCache,
+          outputTokens: yOut,
+          subagentTokens: yAgg.subagentTokens,
+          cacheHitPct: calcExactCacheHitPct(yIn, yCache),
+          conversations: yAgg.conversations,
+          subagentConversations: yAgg.subagentConversations,
+          rounds: yAgg.rounds,
+          steps: yAgg.steps,
+          topModel: yModels.length > 0 ? yModels[0].model : '',
+          models: yModels
+        };
+      }
+    }
+
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        ts: Date.now(),
+        tzOffsetMin: nowDate.getTimezoneOffset(),
+        daysCount: reqDays,
+        today,
+        yesterday: yesterday || fallbackYesterday,
+        rangeSummary: {
+          days: reqDays,
+          totalTokens: rangeTotal,
+          inputTokens: rangeInput,
+          cacheReadTokens: rangeCache,
+          outputTokens: rangeOutput,
+          cacheHitPct: calcExactCacheHitPct(rangeInput, rangeCache),
+          activeDays: rangeActiveDays,
+          avgPerDay: Math.round(rangeTotal / reqDays),
+          avgPerActiveDay: rangeActiveDays > 0 ? Math.round(rangeTotal / rangeActiveDays) : 0,
+          peakDate,
+          peakTokens
+        },
+        allTimeSummary: {
+          totalTokens: allTime.totalTokens,
+          inputTokens: allTime.inputTokens,
+          cacheReadTokens: allTime.cacheReadTokens,
+          outputTokens: allTime.outputTokens,
+          cacheHitPct: calcExactCacheHitPct(allTime.inputTokens, allTime.cacheReadTokens),
+          activeDays: allTime.activeDates.size
+        },
+        days
+      }
+    };
+  }
+
   validateToken(req, urlObj) {
     if (urlObj.pathname === '/preload.js') return true;
     if (!this.token) return true;
@@ -6987,6 +7285,12 @@ class AgyCockpitServer {
 
     if (req.method === 'GET' && pathname === '/api/handoff-summary') {
       const { status, body } = this.handleHandoffSummary(query);
+      sendJson(res, status, body);
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/api/daily-tokens') {
+      const { status, body } = this.handleDailyTokens(query);
       sendJson(res, status, body);
       return;
     }

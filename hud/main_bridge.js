@@ -16,10 +16,12 @@
     const PREFS_PATH = path.join(PLUGIN_DIR, 'hud_prefs.json');
     const CUSTOM_ASSETS_DIR = path.join(PLUGIN_DIR, 'assets', 'custom');
     const RUNTIME_PTR_PATH = path.join(PLUGIN_DIR, 'runtime_server.json');
+    const DAILY_CACHE_PATH = path.join(PLUGIN_DIR, 'daily_tokens_cache.json');
     const DAEMON_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'daemon');
     const BRAIN_DIR = path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
     const PROJECTS_DIR = path.join(os.homedir(), '.gemini', 'config', 'projects');
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const SENDER_UUID_RE = /\bsender=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![/a-z0-9_-])/i;
     const FRAME_KEYS = ['idle', 'eat', 'grin', 'xd', 'wait'];
     const BUILTIN_SKINS = ['purple', 'heterochromia'];
 
@@ -412,6 +414,408 @@
       if (!m) return 0;
       const sec = parseFloat(m[1]);
       return Number.isFinite(sec) && sec > 0 ? Math.round(sec * 1000) : 0;
+    }
+
+    const WEEKDAY_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+    function formatLocalDateKey(ms) {
+      const n = Number(ms);
+      if (!Number.isFinite(n) || n <= 0) return '';
+      const d = new Date(n);
+      if (Number.isNaN(d.getTime())) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function getWeekdayZh(dateKey) {
+      if (!dateKey || typeof dateKey !== 'string') return '';
+      const parts = dateKey.split('-');
+      if (parts.length !== 3) return '';
+      const y = Number(parts[0]);
+      const m = Number(parts[1]);
+      const d = Number(parts[2]);
+      if (!y || !m || !d) return '';
+      return WEEKDAY_ZH[new Date(y, m - 1, d).getDay()] || '';
+    }
+
+    function calcCacheHitPct(inTok, cacheTok) {
+      const i = Number(inTok) || 0;
+      const c = Number(cacheTok) || 0;
+      const denom = i + c;
+      if (denom <= 0) return null;
+      const pct = (c / denom) * 100;
+      return pct >= 100 ? 100 : Math.round(pct * 10) / 10;
+    }
+
+    function parseTranscriptDailyUsage(tp, st) {
+      const dailyUsage = {};
+      let isSubagent = false;
+      try {
+        const raw = fs.readFileSync(tp, 'utf8');
+        const lines = raw.split('\n');
+        let lastParsedStepIndex = -1;
+        let lastPlannerStepTok = null;
+        let lastPlannerStepDateKey = '';
+        let lastActiveMs = 0;
+        let promptCount = 0;
+        let isFirstLine = true;
+
+        const getBucket = (dk) => {
+          if (!dk) return null;
+          let b = dailyUsage[dk];
+          if (!b) {
+            b = { inTok: 0, cacheTok: 0, outTok: 0, rounds: 0, steps: 0, models: {} };
+            dailyUsage[dk] = b;
+          }
+          return b;
+        };
+
+        for (const ln of lines) {
+          const s = ln.trim();
+          if (!s) continue;
+          const hasUser = s.includes('"type":"USER_INPUT"');
+          const hasPlanner = s.includes('"type":"PLANNER_RESPONSE"');
+          const hasSystem = s.includes('"type":"SYSTEM_MESSAGE"');
+          if (!hasUser && !hasPlanner && !hasSystem && !isFirstLine) {
+            isFirstLine = false;
+            continue;
+          }
+          let obj;
+          try {
+            obj = JSON.parse(s);
+          } catch {
+            isFirstLine = false;
+            continue;
+          }
+          const stepIdx = typeof obj.step_index === 'number' ? obj.step_index : -1;
+          const isRepeatStep = stepIdx >= 0 && stepIdx === lastParsedStepIndex;
+          const createdMs = typeof obj.created_at === 'string' && obj.created_at ? (Date.parse(obj.created_at) || 0) : 0;
+          if (createdMs >= lastActiveMs) lastActiveMs = createdMs;
+          const type = obj.type || '';
+          const content = typeof obj.content === 'string' ? obj.content : '';
+
+          if (!isSubagent && promptCount === 0 && (type === 'SYSTEM_MESSAGE' || (isFirstLine && content.startsWith('The following is a <SYSTEM_MESSAGE>')))) {
+            if (SENDER_UUID_RE.test(content)) isSubagent = true;
+          }
+          isFirstLine = false;
+
+          if (type === 'USER_INPUT') {
+            let clean = content;
+            const reqMatch = /<USER_REQUEST>\s*([\s\S]*?)\s*<\/USER_REQUEST>/i.exec(clean);
+            if (reqMatch) clean = reqMatch[1];
+            clean = clean.trim();
+            if (clean && !clean.startsWith('[AGY Cockpit Smart Handoff]')) {
+              if (!isRepeatStep) {
+                if (stepIdx >= 0) lastParsedStepIndex = stepIdx;
+                promptCount += 1;
+                if (!isSubagent) {
+                  const uDay = formatLocalDateKey(createdMs || lastActiveMs || st.mtimeMs);
+                  const ub = getBucket(uDay);
+                  if (ub) ub.rounds += 1;
+                }
+              }
+            }
+            continue;
+          }
+
+          if (type === 'PLANNER_RESPONSE') {
+            const inTok = typeof obj.input_tokens === 'number' && obj.input_tokens > 0 ? obj.input_tokens : 0;
+            const cacheTok = typeof obj.cache_read_tokens === 'number' && obj.cache_read_tokens > 0 ? obj.cache_read_tokens : 0;
+            const outTok = typeof obj.output_tokens === 'number' && obj.output_tokens > 0 ? obj.output_tokens : 0;
+            const prevTok = (isRepeatStep && lastPlannerStepTok) ? lastPlannerStepTok : { inTok: 0, cacheTok: 0, outTok: 0 };
+            const effIn = inTok > 0 ? inTok : prevTok.inTok;
+            const effCache = cacheTok > 0 ? cacheTok : prevTok.cacheTok;
+            const effOut = outTok > 0 ? outTok : prevTok.outTok;
+            const deltaIn = effIn - prevTok.inTok;
+            const deltaCache = effCache - prevTok.cacheTok;
+            const deltaOut = effOut - prevTok.outTok;
+
+            const rawDateKey = formatLocalDateKey(createdMs || lastActiveMs || st.mtimeMs);
+            const hasPrev = Boolean(isRepeatStep && lastPlannerStepTok && (lastPlannerStepTok.inTok > 0 || lastPlannerStepTok.cacheTok > 0 || lastPlannerStepTok.outTok > 0));
+            const stepDateKey = (hasPrev && lastPlannerStepDateKey) ? lastPlannerStepDateKey : rawDateKey;
+            const db = getBucket(stepDateKey);
+            if (db && !isRepeatStep) db.steps += 1;
+            if (db && (deltaIn !== 0 || deltaCache !== 0 || deltaOut !== 0)) {
+              db.inTok = Math.max(0, (db.inTok || 0) + deltaIn);
+              db.cacheTok = Math.max(0, (db.cacheTok || 0) + deltaCache);
+              db.outTok = Math.max(0, (db.outTok || 0) + deltaOut);
+              const deltaTot = deltaIn + deltaCache + deltaOut;
+              const rawModel = typeof obj.model === 'string' && obj.model.trim() ? obj.model.trim() : '';
+              if (rawModel && deltaTot !== 0) {
+                db.models[rawModel] = Math.max(0, (db.models[rawModel] || 0) + deltaTot);
+              }
+            }
+            lastPlannerStepTok = { inTok: effIn, cacheTok: effCache, outTok: effOut };
+            lastPlannerStepDateKey = stepDateKey;
+            if (stepIdx >= 0) lastParsedStepIndex = stepIdx;
+          }
+        }
+      } catch {}
+      return { mtimeMs: st.mtimeMs, size: st.size, isSubagent, dailyUsage };
+    }
+
+    let dailyCacheState = { loaded: false, tzOffsetMin: new Date().getTimezoneOffset(), entries: {}, lastScanAt: 0 };
+
+    function ensureDailyCacheLoaded() {
+      const curTz = new Date().getTimezoneOffset();
+      if (dailyCacheState.loaded && dailyCacheState.tzOffsetMin === curTz) return;
+      dailyCacheState = { loaded: true, tzOffsetMin: curTz, entries: {}, lastScanAt: 0 };
+      const saved = readJsonSafe(DAILY_CACHE_PATH);
+      if (saved && saved.version === 1 && saved.tzOffsetMin === curTz && saved.entries && typeof saved.entries === 'object') {
+        dailyCacheState.entries = saved.entries;
+      }
+    }
+
+    function saveDailyCacheToDisk() {
+      try {
+        fs.mkdirSync(PLUGIN_DIR, { recursive: true });
+        const tmp = `${DAILY_CACHE_PATH}.tmp.${process.pid}.${Date.now()}`;
+        fs.writeFileSync(
+          tmp,
+          JSON.stringify({ version: 1, tzOffsetMin: dailyCacheState.tzOffsetMin, savedAt: Date.now(), entries: dailyCacheState.entries }),
+          'utf8'
+        );
+        try {
+          fs.renameSync(tmp, DAILY_CACHE_PATH);
+        } catch {
+          fs.copyFileSync(tmp, DAILY_CACHE_PATH);
+          fs.rmSync(tmp, { force: true });
+        }
+      } catch {}
+    }
+
+    async function getFallbackDailyTokens(reqDays = 14, forceRefresh = false) {
+      const nDays = Math.max(1, Math.min(366, Number(reqDays) || 14));
+      ensureDailyCacheLoaded();
+      const now = Date.now();
+      let dirty = false;
+
+      if (forceRefresh || now - dailyCacheState.lastScanAt >= 2000) {
+        dailyCacheState.lastScanAt = now;
+        try {
+          if (fs.existsSync(BRAIN_DIR)) {
+            const dirents = fs.readdirSync(BRAIN_DIR, { withFileTypes: true });
+            const seen = new Set();
+            for (const d of dirents) {
+              if (!d.isDirectory() || d.name.startsWith('.')) continue;
+              const convId = d.name.toLowerCase();
+              if (!UUID_RE.test(convId)) continue;
+              seen.add(convId);
+              const tp = path.join(BRAIN_DIR, convId, '.system_generated', 'logs', 'transcript.jsonl');
+              let st = null;
+              try {
+                if (fs.existsSync(tp)) st = fs.statSync(tp);
+              } catch {}
+              if (!st || !st.isFile()) continue;
+              const prev = dailyCacheState.entries[convId];
+              if (prev && prev.mtimeMs === st.mtimeMs && prev.size === st.size && prev.dailyUsage) {
+                continue;
+              }
+              dailyCacheState.entries[convId] = parseTranscriptDailyUsage(tp, st);
+              dirty = true;
+            }
+            for (const oldId of Object.keys(dailyCacheState.entries)) {
+              if (!seen.has(oldId)) {
+                delete dailyCacheState.entries[oldId];
+                dirty = true;
+              }
+            }
+          }
+        } catch {}
+        if (dirty) saveDailyCacheToDisk();
+      }
+
+      const modelMap = await getFallbackModelLabelMap(false).catch(() => new Map());
+      const byDate = new Map();
+      const allTime = { totalTokens: 0, inputTokens: 0, cacheReadTokens: 0, outputTokens: 0, activeDates: new Set() };
+
+      const getAgg = (dateKey) => {
+        let agg = byDate.get(dateKey);
+        if (!agg) {
+          agg = {
+            date: dateKey,
+            inputTokens: 0,
+            cacheReadTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
+            subagentTokens: 0,
+            conversations: 0,
+            subagentConversations: 0,
+            rounds: 0,
+            steps: 0,
+            models: new Map()
+          };
+          byDate.set(dateKey, agg);
+        }
+        return agg;
+      };
+
+      for (const item of Object.values(dailyCacheState.entries)) {
+        if (!item || !item.dailyUsage || typeof item.dailyUsage !== 'object') continue;
+        for (const [dateKey, b] of Object.entries(item.dailyUsage)) {
+          if (!b || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) continue;
+          const inTok = Number(b.inTok) || 0;
+          const cacheTok = Number(b.cacheTok) || 0;
+          const outTok = Number(b.outTok) || 0;
+          const totTok = inTok + cacheTok + outTok;
+          const rounds = Number(b.rounds) || 0;
+          const steps = Number(b.steps) || 0;
+          if (totTok <= 0 && rounds <= 0 && steps <= 0) continue;
+
+          const agg = getAgg(dateKey);
+          agg.inputTokens += inTok;
+          agg.cacheReadTokens += cacheTok;
+          agg.outputTokens += outTok;
+          agg.totalTokens += totTok;
+          agg.steps += steps;
+
+          if (item.isSubagent) {
+            agg.subagentTokens += totTok;
+            if (totTok > 0) agg.subagentConversations += 1;
+          } else {
+            agg.rounds += rounds;
+            if (totTok > 0 || rounds > 0) agg.conversations += 1;
+          }
+
+          if (b.models && typeof b.models === 'object') {
+            for (const [mKey, mTok] of Object.entries(b.models)) {
+              const val = Number(mTok) || 0;
+              if (!mKey || val <= 0) continue;
+              const lbl = modelMap.get(mKey) || modelMap.get(mKey.toLowerCase()) || mKey;
+              agg.models.set(lbl, (agg.models.get(lbl) || 0) + val);
+            }
+          }
+
+          allTime.inputTokens += inTok;
+          allTime.cacheReadTokens += cacheTok;
+          allTime.outputTokens += outTok;
+          allTime.totalTokens += totTok;
+          if (totTok > 0) allTime.activeDates.add(dateKey);
+        }
+      }
+
+      const nowDate = new Date();
+      const days = [];
+      let rangeInput = 0;
+      let rangeCache = 0;
+      let rangeOutput = 0;
+      let rangeTotal = 0;
+      let rangeActiveDays = 0;
+      let peakDate = '';
+      let peakTokens = 0;
+
+      for (let i = 0; i < nDays; i++) {
+        const dt = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - i);
+        const dateKey = formatLocalDateKey(dt.getTime());
+        const agg = byDate.get(dateKey);
+        const inTok = agg ? agg.inputTokens : 0;
+        const cacheTok = agg ? agg.cacheReadTokens : 0;
+        const outTok = agg ? agg.outputTokens : 0;
+        const totTok = agg ? agg.totalTokens : 0;
+        const modelsList = agg
+          ? [...agg.models.entries()]
+              .map(([model, tokens]) => ({ model, tokens }))
+              .sort((a, b) => b.tokens - a.tokens)
+              .slice(0, 6)
+          : [];
+        days.push({
+          date: dateKey,
+          shortDate: dateKey.slice(5),
+          weekday: getWeekdayZh(dateKey),
+          isToday: i === 0,
+          isYesterday: i === 1,
+          totalTokens: totTok,
+          inputTokens: inTok,
+          cacheReadTokens: cacheTok,
+          outputTokens: outTok,
+          subagentTokens: agg ? agg.subagentTokens : 0,
+          cacheHitPct: calcCacheHitPct(inTok, cacheTok),
+          conversations: agg ? agg.conversations : 0,
+          subagentConversations: agg ? agg.subagentConversations : 0,
+          rounds: agg ? agg.rounds : 0,
+          steps: agg ? agg.steps : 0,
+          topModel: modelsList.length > 0 ? modelsList[0].model : '',
+          models: modelsList
+        });
+
+        rangeInput += inTok;
+        rangeCache += cacheTok;
+        rangeOutput += outTok;
+        rangeTotal += totTok;
+        if (totTok > 0) rangeActiveDays += 1;
+        if (totTok > peakTokens) {
+          peakTokens = totTok;
+          peakDate = dateKey;
+        }
+      }
+
+      const today = days[0] || null;
+      const yesterday = days[1] || null;
+      let fallbackYesterday = null;
+      if (!yesterday) {
+        const yDt = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() - 1);
+        const yKey = formatLocalDateKey(yDt.getTime());
+        const yAgg = byDate.get(yKey);
+        if (yAgg) {
+          const yModels = [...yAgg.models.entries()]
+            .map(([model, tokens]) => ({ model, tokens }))
+            .sort((a, b) => b.tokens - a.tokens)
+            .slice(0, 6);
+          fallbackYesterday = {
+            date: yKey,
+            shortDate: yKey.slice(5),
+            weekday: getWeekdayZh(yKey),
+            isToday: false,
+            isYesterday: true,
+            totalTokens: yAgg.totalTokens,
+            inputTokens: yAgg.inputTokens,
+            cacheReadTokens: yAgg.cacheReadTokens,
+            outputTokens: yAgg.outputTokens,
+            subagentTokens: yAgg.subagentTokens,
+            cacheHitPct: calcCacheHitPct(yAgg.inputTokens, yAgg.cacheReadTokens),
+            conversations: yAgg.conversations,
+            subagentConversations: yAgg.subagentConversations,
+            rounds: yAgg.rounds,
+            steps: yAgg.steps,
+            topModel: yModels.length > 0 ? yModels[0].model : '',
+            models: yModels
+          };
+        }
+      }
+
+      return {
+        ok: true,
+        ts: now,
+        fallback: true,
+        tzOffsetMin: nowDate.getTimezoneOffset(),
+        daysCount: nDays,
+        today,
+        yesterday: yesterday || fallbackYesterday,
+        rangeSummary: {
+          days: nDays,
+          totalTokens: rangeTotal,
+          inputTokens: rangeInput,
+          cacheReadTokens: rangeCache,
+          outputTokens: rangeOutput,
+          cacheHitPct: calcCacheHitPct(rangeInput, rangeCache),
+          activeDays: rangeActiveDays,
+          avgPerDay: Math.round(rangeTotal / nDays),
+          avgPerActiveDay: rangeActiveDays > 0 ? Math.round(rangeTotal / rangeActiveDays) : 0,
+          peakDate,
+          peakTokens
+        },
+        allTimeSummary: {
+          totalTokens: allTime.totalTokens,
+          inputTokens: allTime.inputTokens,
+          cacheReadTokens: allTime.cacheReadTokens,
+          outputTokens: allTime.outputTokens,
+          cacheHitPct: calcCacheHitPct(allTime.inputTokens, allTime.cacheReadTokens),
+          activeDays: allTime.activeDates.size
+        },
+        days
+      };
     }
 
     function parseFallbackTranscript(convId) {
@@ -1166,6 +1570,25 @@
         }
       }
       return [];
+    });
+
+    ipcMain.handle('neko-hud:get-daily-tokens', async (_event, days = 14, forceRefresh = false) => {
+      const nDays = Math.max(1, Math.min(366, parseInt(String(days || '14'), 10) || 14));
+      const info = findSidecarServerInfo();
+      if (info && info.port) {
+        const qs = new URLSearchParams({ days: String(nDays) });
+        if (forceRefresh) qs.set('refresh', '1');
+        if (info.token) qs.set('token', info.token);
+        const res = await httpJsonRequest({
+          host: info.host || '127.0.0.1',
+          port: info.port,
+          path: `/api/daily-tokens?${qs.toString()}`,
+          headers: info.token ? { 'X-Sidecar-Token': info.token } : {},
+          timeoutMs: 3000
+        });
+        if (res.ok && res.data && res.data.ok) return res.data;
+      }
+      return getFallbackDailyTokens(nDays, Boolean(forceRefresh));
     });
   } catch (err) {
     try { console.error('[Gemini-Neko-HUD] main bridge error:', err); } catch {}
