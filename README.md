@@ -1,8 +1,8 @@
-# Gemini 猫娘观察台 · 反重力观察窗（Antigravity Observer v1.4.0）
+# Gemini 猫娘观察台 · 反重力观察窗（Antigravity Observer v1.3.0）
 
 > 专为 **Google Antigravity**（已实测适配 `2.35.2`）打造的应用内紧贴右下角 **Gemini 猫娘桌面挂件**与**上下文 / Token / 额度观察窗**（GitHub 仓库：`antigravity-observer`，插件 ID：`gemini-neko-cockpit`，兼容保留 `AG_ZH` 中文汉化补丁）。
 
-[![version](https://img.shields.io/badge/version-v1.4.0-6366f1.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer/releases)
+[![version](https://img.shields.io/badge/version-v1.3.0-6366f1.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer/releases)
 [![Antigravity](https://img.shields.io/badge/Antigravity-2.35.2-8b5cf6.svg)](https://github.com/yunjuanyunshu114-byte/antigravity-observer)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-10b981.svg)](#第二步执行安装)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
@@ -13,7 +13,7 @@
 
 ---
 
-## 📋 v1.4.0 版本特性总览
+## 📋 v1.3.0 版本特性总览
 
 ### 1. 应用内紧贴右下角 Gemini 猫娘挂件
 - **无打扰静默待机**：紧贴窗口右下角（`0px` 贴边），平时仅展示统一无鲸鱼耳猫娘头发与蓝紫发色、透明抠图处理的 Gemini 娘主形象，不常驻额外按钮或遮挡工作区。
@@ -258,7 +258,7 @@ git pull origin main
 │   └── SKILL.md                     # 对话内快捷调用 Antigravity Skill
 ├── src/
 │   └── asar_patcher.js              # ASAR 无损重写与 SHA-256 块校验器
-├── plugin.json                      # Antigravity 插件元信息 (v1.4.0)
+├── plugin.json                      # Antigravity 插件元信息 (v1.3.0)
 ├── setup.cjs                        # 安装 / 暂存 / 状态检查 / 自检 / 卸载主程序
 ├── LICENSE                          # MIT 开源许可证
 ├── 双击安装观察窗补丁.bat             # Windows 一键安装脚本
