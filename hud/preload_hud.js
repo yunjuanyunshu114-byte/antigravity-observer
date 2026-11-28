@@ -31,6 +31,19 @@
       '别戳太用力啦……会变笨的喵 ><'
     ];
 
+    const BUILTIN_SKIN_LIST = [
+      { id: 'purple', name: '经典紫瞳', shortName: '紫瞳猫娘', chip: '💜 经典紫瞳' },
+      { id: 'heterochromia', name: '粉金异瞳', shortName: '异瞳猫娘', chip: '💗💛 粉金异瞳' },
+      { id: 'sleepwear', name: '星夜睡衣', shortName: '星夜睡衣', chip: '🌙 星夜睡衣' },
+      { id: 'maid', name: '星语女仆', shortName: '星语女仆', chip: '🎀 星语女仆' },
+      { id: 'swimsuit', name: '星海泳装', shortName: '星海泳装', chip: '🌊 星海泳装' },
+      { id: 'rainbow', name: '极光幻彩', shortName: '极光幻彩', chip: '🌈 极光幻彩' },
+      { id: 'winter', name: '冬日星语', shortName: '冬日星语', chip: '❄️ 冬日星语' }
+    ];
+    function resolveBuiltinSkin(skinId) {
+      return BUILTIN_SKIN_LIST.find((s) => s.id === skinId) || BUILTIN_SKIN_LIST[0];
+    }
+
     const CSS = `
 /* Antigravity Observer In-Window HUD + Gemini Catgirl Corner Widget */
 #${IDS.stats} {
@@ -223,19 +236,26 @@
   cursor: grabbing;
   transform: scale(1.04) rotate(-2deg);
 }
-#${IDS.petRoot} .gn-avatar-btn.is-pressed {
-  transform: scaleX(1.06) scaleY(0.87) !important;
-  transition: transform 0.07s ease-out !important;
-}
 #${IDS.petRoot} .gn-avatar-flip {
   width: 100%;
   height: 100%;
   position: relative;
-  transition: transform 0.26s ease;
+  transform-origin: 50% 100%;
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
   pointer-events: none;
+}
+#${IDS.petRoot}.is-top .gn-avatar-flip {
+  transform-origin: 50% 0%;
 }
 #${IDS.petRoot}.is-left .gn-avatar-flip {
   transform: scaleX(-1);
+}
+#${IDS.petRoot} .gn-avatar-btn.is-pressed .gn-avatar-flip {
+  transform: scaleX(1.06) scaleY(0.87) !important;
+  transition: transform 0.07s ease-out !important;
+}
+#${IDS.petRoot}.is-left .gn-avatar-btn.is-pressed .gn-avatar-flip {
+  transform: scaleX(-1.06) scaleY(0.87) !important;
 }
 #${IDS.petRoot} .gn-avatar-anim {
   width: 100%;
@@ -327,10 +347,11 @@
 }
 #${IDS.petRoot}.is-bubble-open .gn-thought-wrap {
   opacity: 1;
-  pointer-events: auto;
+  pointer-events: none;
   transform: translateY(0) scale(1);
 }
-#${IDS.petRoot}.is-panel-open .gn-thought-wrap {
+#${IDS.petRoot}.is-panel-open .gn-thought-wrap,
+#${IDS.petRoot}.is-panel-open .gn-thought-hit {
   opacity: 0 !important;
   pointer-events: none !important;
 }
@@ -345,6 +366,7 @@
   height: 100%;
   display: block;
   overflow: visible;
+  pointer-events: none;
   filter: drop-shadow(0 8px 20px rgba(15, 23, 42, 0.22));
   transition: transform 0.25s ease;
 }
@@ -364,6 +386,7 @@
   width: 84%;
   height: 65%;
   border-radius: 999px;
+  pointer-events: none;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -372,7 +395,10 @@
   text-align: center;
   padding: calc(14px * var(--gn-bubble-scale, 1)) calc(14px * var(--gn-bubble-scale, 1)) calc(2px * var(--gn-bubble-scale, 1));
   overflow: hidden;
-  transition: opacity 0.16s ease;
+  transition: opacity 0.12s ease;
+}
+#${IDS.petRoot}.is-bubble-open .gn-thought-hit {
+  pointer-events: auto;
 }
 #${IDS.petRoot}.is-top .gn-thought-hit {
   top: 30%;
@@ -1175,7 +1201,7 @@
       },
       frames: {},
       defaultFrames: {},
-      builtinSkins: { purple: {}, heterochromia: {} },
+      builtinSkins: Object.fromEntries(BUILTIN_SKIN_LIST.map((s) => [s.id, {}])),
       soundsB64: {},
       customAudio: null,
       activeConvId: '__init__',
@@ -2342,24 +2368,14 @@
 
       const nextHtml = buildInner();
       clearBubbleFadeTimer();
-      if (withFade) {
-        hit.classList.add('is-fading');
-        const expectedStage = hud.bubbleStage;
-        hud.bubbleFadeTimer = setTimeout(() => {
-          hud.bubbleFadeTimer = null;
-          if (hud.bubbleStage !== expectedStage) {
-            hit.classList.remove('is-fading');
-            return;
-          }
-          hit.__gnHtml = nextHtml;
-          hit.innerHTML = nextHtml;
+      hit.classList.remove('is-fading');
+      if (hit.__gnHtml !== nextHtml) {
+        hit.__gnHtml = nextHtml;
+        hit.innerHTML = nextHtml;
+        if (withFade) {
+          hit.classList.add('is-fading');
+          void hit.offsetWidth;
           hit.classList.remove('is-fading');
-        }, 140);
-      } else {
-        hit.classList.remove('is-fading');
-        if (hit.__gnHtml !== nextHtml) {
-          hit.__gnHtml = nextHtml;
-          hit.innerHTML = nextHtml;
         }
       }
     }
@@ -2924,7 +2940,8 @@
       const customDialogues = Array.isArray(hud.prefs.customDialogues) ? hud.prefs.customDialogues : [];
       const cf = hud.prefs.customFrames || {};
       const hasCustomFrame = Boolean(cf.idle || cf.eat || cf.xd || cf.grin || cf.wait);
-      const curSkin = hud.prefs.skin === 'heterochromia' ? 'heterochromia' : 'purple';
+      const curSkinObj = resolveBuiltinSkin(hud.prefs.skin);
+      const curSkin = curSkinObj.id;
 
       panel.style.minHeight = '';
       panel.style.display = '';
@@ -2990,20 +3007,17 @@
         <div class="gn-set-row">
           <div class="gn-set-label">
             <span>🎨 默认皮肤</span>
-            <span style="font-size:10px;opacity:.65;">${curSkin === 'heterochromia' ? '粉金异瞳' : '经典紫瞳'}</span>
+            <span style="font-size:10px;opacity:.65;">${esc(curSkinObj.name)}</span>
           </div>
           <div class="gn-chip-row">
-            ${[
-              ['purple', '💜 经典紫瞳'],
-              ['heterochromia', '💗💛 粉金异瞳']
-            ].map(([id, lbl]) => `<button type="button" class="gn-chip ${curSkin === id ? 'is-active' : ''}" data-gn-skin="${id}">${lbl}</button>`).join('')}
+            ${BUILTIN_SKIN_LIST.map((s) => `<button type="button" class="gn-chip ${curSkin === s.id ? 'is-active' : ''}" data-gn-skin="${s.id}">${s.chip}</button>`).join('')}
           </div>
         </div>
 
         <div class="gn-set-row">
           <div class="gn-set-label">
             <span>🖼️ 自定义形象</span>
-            ${hasCustomFrame ? `<button type="button" class="gn-chip" data-gn-pet="reset-frames">↺ 恢复默认</button>` : `<span style="font-size:10px;opacity:.65;">当前: 默认 ${curSkin === 'heterochromia' ? '异瞳猫娘' : '紫瞳猫娘'}</span>`}
+            ${hasCustomFrame ? `<button type="button" class="gn-chip" data-gn-pet="reset-frames">↺ 恢复默认</button>` : `<span style="font-size:10px;opacity:.65;">当前: 默认 ${esc(curSkinObj.shortName)}</span>`}
           </div>
           <div class="gn-chip-row">
             <button type="button" class="gn-chip ${cf.idle ? 'is-active' : ''}" data-gn-pick-frame="idle">更改主形象${cf.idle ? ' ✓' : ''}</button>
@@ -3099,7 +3113,7 @@
     }
 
     function applyBuiltinSkinFrames(skinId) {
-      const skin = skinId === 'heterochromia' ? 'heterochromia' : 'purple';
+      const skin = resolveBuiltinSkin(skinId).id;
       const skinMap = (hud.builtinSkins && hud.builtinSkins[skin]) || {};
       const fallbackMap = (hud.builtinSkins && hud.builtinSkins.purple) || {};
       const cf = hud.prefs.customFrames || {};
@@ -3251,7 +3265,7 @@
         if (!drag || e.pointerId !== drag.id) return;
         const dx = e.clientX - drag.sx;
         const dy = e.clientY - drag.sy;
-        if (!drag.moved && dx * dx + dy * dy >= 16) {
+        if (!drag.moved && dx * dx + dy * dy >= 81) {
           drag.moved = true;
           avatarBtn.classList.remove('is-pressed');
           root.classList.add('is-dragging');
@@ -3500,7 +3514,7 @@
         const skinEl = e.target && e.target.closest ? e.target.closest('[data-gn-skin]') : null;
         if (skinEl) {
           e.stopPropagation();
-          const nextSkin = skinEl.getAttribute('data-gn-skin') === 'heterochromia' ? 'heterochromia' : 'purple';
+          const nextSkin = resolveBuiltinSkin(skinEl.getAttribute('data-gn-skin')).id;
           hud.prefs.skin = nextSkin;
           applyBuiltinSkinFrames(nextSkin);
           savePrefsPatch({ skin: nextSkin });

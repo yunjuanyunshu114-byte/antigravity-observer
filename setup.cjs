@@ -21,6 +21,8 @@ const SKILL_DEST_DIR = path.join(PLUGIN_DEST_DIR, 'skills', PLUGIN_ID);
 
 const HUD_BEGIN = '// ===== GEMINI_NEKO_HUD_BEGIN =====';
 const HUD_END = '// ===== GEMINI_NEKO_HUD_END =====';
+const EXTRA_BUILTIN_SKINS = ['heterochromia', 'sleepwear', 'maid', 'swimsuit', 'rainbow', 'winter'];
+const FRAME_FILES = ['idle.webp', 'eat.webp', 'xd.webp', 'grin.webp', 'wait.webp'];
 
 function resolveNodeExecutable() {
   const execPath = process.execPath;
@@ -345,16 +347,10 @@ function checkStatus(resourcesDir) {
     fs.existsSync(path.join(SIDECAR_DEST_DIR, 'ui.html'));
   const assetsOk =
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'logo.png')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'idle.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'eat.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'xd.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'grin.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'wait.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'idle.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'eat.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'xd.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'grin.webp')) &&
-    fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'wait.webp')) &&
+    FRAME_FILES.every((f) => fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', f))) &&
+    EXTRA_BUILTIN_SKINS.every((skin) =>
+      FRAME_FILES.every((f) => fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', skin, f)))
+    ) &&
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_press.wav')) &&
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_release.wav')) &&
     fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'review_alert.wav'));
@@ -390,10 +386,10 @@ async function runDoctor(args, resourcesDir) {
         fs.existsSync(path.join(PLUGIN_DEST_DIR, 'plugin.json')) &&
         fs.existsSync(path.join(SIDECAR_DEST_DIR, 'server.cjs')) &&
         fs.existsSync(path.join(ASSETS_DEST_DIR, 'logo.png')) &&
-        fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'idle.webp')) &&
-        fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', 'wait.webp')) &&
-        fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'idle.webp')) &&
-        fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', 'heterochromia', 'wait.webp')) &&
+        FRAME_FILES.every((f) => fs.existsSync(path.join(ASSETS_DEST_DIR, 'frames', f))) &&
+        EXTRA_BUILTIN_SKINS.every((skin) =>
+          FRAME_FILES.every((f) => fs.existsSync(path.join(ASSETS_DEST_DIR, 'skins', skin, f)))
+        ) &&
         fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'boing_release.wav')) &&
         fs.existsSync(path.join(ASSETS_DEST_DIR, 'sounds', 'review_alert.wav'))
           ? 'pass'

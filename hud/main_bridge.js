@@ -23,7 +23,7 @@
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const SENDER_UUID_RE = /\bsender=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![/a-z0-9_-])/i;
     const FRAME_KEYS = ['idle', 'eat', 'grin', 'xd', 'wait'];
-    const BUILTIN_SKINS = ['purple', 'heterochromia'];
+    const BUILTIN_SKINS = ['purple', 'heterochromia', 'sleepwear', 'maid', 'swimsuit', 'rainbow', 'winter'];
 
     const DEFAULT_ANCHOR = {
       v: 2,
@@ -224,16 +224,22 @@
     }
 
     function loadBootAssets(prefs) {
-      const builtinSkins = { purple: {}, heterochromia: {} };
+      const builtinSkins = {};
+      for (const skinId of BUILTIN_SKINS) {
+        builtinSkins[skinId] = {};
+      }
       for (const name of FRAME_KEYS) {
         const purplePath = path.join(PLUGIN_DIR, 'assets', 'frames', `${name}.webp`);
         const purpleUrl = readImageDataUrl(purplePath, 2 * 1024 * 1024);
         if (purpleUrl) builtinSkins.purple[name] = purpleUrl;
 
-        const heteroPath = path.join(PLUGIN_DIR, 'assets', 'skins', 'heterochromia', `${name}.webp`);
-        const heteroUrl = readImageDataUrl(heteroPath, 2 * 1024 * 1024);
-        if (heteroUrl) builtinSkins.heterochromia[name] = heteroUrl;
-        else if (purpleUrl) builtinSkins.heterochromia[name] = purpleUrl;
+        for (const skinId of BUILTIN_SKINS) {
+          if (skinId === 'purple') continue;
+          const skinPath = path.join(PLUGIN_DIR, 'assets', 'skins', skinId, `${name}.webp`);
+          const skinUrl = readImageDataUrl(skinPath, 2 * 1024 * 1024);
+          if (skinUrl) builtinSkins[skinId][name] = skinUrl;
+          else if (purpleUrl) builtinSkins[skinId][name] = purpleUrl;
+        }
       }
 
       const activeSkin = (prefs && BUILTIN_SKINS.includes(prefs.skin)) ? prefs.skin : 'purple';
