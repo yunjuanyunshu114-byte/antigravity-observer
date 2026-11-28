@@ -370,7 +370,7 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: calc(8px * var(--gn-bubble-scale, 1)) calc(18px * var(--gn-bubble-scale, 1));
+  padding: calc(14px * var(--gn-bubble-scale, 1)) calc(14px * var(--gn-bubble-scale, 1)) calc(2px * var(--gn-bubble-scale, 1));
   overflow: hidden;
   transition: opacity 0.16s ease;
 }
@@ -431,6 +431,41 @@
   font-size: calc(9px * var(--gn-bubble-scale, 1));
   color: #94a3b8;
   font-weight: 600;
+}
+.gn-th-bars {
+  width: 86%;
+  display: flex;
+  flex-direction: column;
+  gap: calc(3.5px * var(--gn-bubble-scale, 1));
+}
+.gn-th-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(1.5px * var(--gn-bubble-scale, 1));
+}
+.gn-th-bar-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(4px * var(--gn-bubble-scale, 1));
+  white-space: nowrap;
+  font-size: calc(10px * var(--gn-bubble-scale, 1));
+  font-weight: 800;
+  color: #000000;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.gn-th-bar-track {
+  width: 100%;
+  height: calc(6px * var(--gn-bubble-scale, 1));
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+  overflow: hidden;
+}
+.gn-th-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s ease;
 }
 
 /* ---- Right-Click Card (Image 4) & Standalone Settings Popover ---- */
@@ -1121,6 +1156,7 @@
         size: 112,
         bubbleScale: 1,
         bubbleAutoHideSec: 8,
+        bubbleStyle: 'bars',
         opacity: 1,
         soundEnabled: true,
         soundSet: 'boing',
@@ -2189,29 +2225,72 @@
         const { conv, activeGrp, fiveH, weekly } = getQuotaMetrics();
         if (hud.bubbleStage === 1) {
           const grpShort = activeGrp ? String(activeGrp.label || 'Gemini').replace(/\s*models?\s*/gi, '').trim() : 'Gemini';
-          const rem5 = fiveH && typeof fiveH.remainingPct === 'number' ? fiveH.remainingPct : null;
-          const remCol = rem5 !== null ? pctColor(rem5, true) : '#3b4b8c';
-          const heroStr = rem5 !== null ? `剩 ${rem5}%` : (conv && conv.contextPct !== null ? `${conv.contextPct}%` : '同步中…');
+          if (hud.prefs.bubbleStyle === 'text') {
+            const rem5 = fiveH && typeof fiveH.remainingPct === 'number' ? fiveH.remainingPct : null;
+            const remCol = rem5 !== null ? pctColor(rem5, true) : '#3b4b8c';
+            const heroStr = rem5 !== null ? `剩 ${rem5}%` : (conv && conv.contextPct !== null ? `${conv.contextPct}%` : '同步中…');
+            const reset5Compact = fiveH ? fmtResetCompact(fiveH.resetMs || fiveH.resetAtIso || fiveH.resetAtMs) : '';
+            const reset5Label = fiveH ? fmtResetLabel(fiveH.resetMs || fiveH.resetAtIso || fiveH.resetAtMs, '5h') : '';
+            const resetWeekCompact = weekly ? fmtResetCompact(weekly.resetMs || weekly.resetAtIso || weekly.resetAtMs) : '';
+            const weekResetSuffix = (resetWeekCompact && resetWeekCompact !== reset5Compact)
+              ? ` (${resetWeekCompact})`
+              : '';
+            const weekStr = weekly && typeof weekly.remainingPct === 'number'
+              ? `周剩 ${weekly.remainingPct}%${weekResetSuffix}`
+              : '';
+            const ctxStr = conv
+              ? `上下文 ${conv.contextPct ?? '?'}% (${fmtTok(conv.contextTokens)}/${conv.contextMaxTokens ? fmtTok(conv.contextMaxTokens) : '?'})`
+              : '暂无活跃对话';
+            const tokStr = conv ? `已用 ${fmtTok(conv.totalTokens)} tok` : '';
+            const subLine1 = [reset5Label, weekStr].filter(Boolean).join(' · ');
+            const subLine2 = [ctxStr, tokStr].filter(Boolean).join(' · ');
+            return `
+              <div class="gn-th-label">${esc(grpShort)} 5h 额度</div>
+              <div class="gn-th-hero" style="color:${remCol};">${esc(heroStr)}</div>
+              ${subLine1 ? `<div class="gn-th-sub">${esc(subLine1)}</div>` : ''}
+              <div class="gn-th-sub">${esc(subLine2)}</div>
+            `;
+          }
+
+          const rem5 = fiveH && typeof fiveH.remainingPct === 'number' ? Math.max(0, Math.min(100, fiveH.remainingPct)) : null;
+          const remWeek = weekly && typeof weekly.remainingPct === 'number' ? Math.max(0, Math.min(100, weekly.remainingPct)) : null;
+          const ctxPct = conv && typeof conv.contextPct === 'number' ? Math.max(0, Math.min(100, conv.contextPct)) : null;
           const reset5Compact = fiveH ? fmtResetCompact(fiveH.resetMs || fiveH.resetAtIso || fiveH.resetAtMs) : '';
-          const reset5Label = fiveH ? fmtResetLabel(fiveH.resetMs || fiveH.resetAtIso || fiveH.resetAtMs, '5h') : '';
           const resetWeekCompact = weekly ? fmtResetCompact(weekly.resetMs || weekly.resetAtIso || weekly.resetAtMs) : '';
-          const weekResetSuffix = (resetWeekCompact && resetWeekCompact !== reset5Compact)
-            ? ` (${resetWeekCompact})`
-            : '';
-          const weekStr = weekly && typeof weekly.remainingPct === 'number'
-            ? `周剩 ${weekly.remainingPct}%${weekResetSuffix}`
-            : '';
-          const ctxStr = conv
-            ? `上下文 ${conv.contextPct ?? '?'}% (${fmtTok(conv.contextTokens)}/${conv.contextMaxTokens ? fmtTok(conv.contextMaxTokens) : '?'})`
-            : '暂无活跃对话';
-          const tokStr = conv ? `已用 ${fmtTok(conv.totalTokens)} tok` : '';
-          const subLine1 = [reset5Label, weekStr].filter(Boolean).join(' · ');
-          const subLine2 = [ctxStr, tokStr].filter(Boolean).join(' · ');
+
+          const renderBarRow = (label, pct, rightText, fillCol) => {
+            const w = pct !== null ? pct : 0;
+            return `
+              <div class="gn-th-bar-row">
+                <div class="gn-th-bar-meta">
+                  <span>${esc(label)}</span>
+                  <span style="color:#000000;">${esc(rightText)}</span>
+                </div>
+                <div class="gn-th-bar-track">
+                  <div class="gn-th-bar-fill" style="width:${w}%;background:${fillCol};"></div>
+                </div>
+              </div>
+            `;
+          };
+
+          const col5h = rem5 !== null ? pctColor(rem5, true) : '#94a3b8';
+          const text5h = rem5 !== null ? `剩 ${rem5}%${reset5Compact ? ` · ${reset5Compact}` : ''}` : '同步中…';
+          const colWeek = remWeek !== null ? pctColor(remWeek, true) : '#94a3b8';
+          const textWeek = remWeek !== null ? `剩 ${remWeek}%${resetWeekCompact ? ` · ${resetWeekCompact}` : ''}` : '--';
+          const colCtx = ctxPct === null ? '#94a3b8' : (ctxPct >= 80 ? '#ef4444' : (ctxPct >= 55 ? '#f59e0b' : '#3b82f6'));
+          const textCtx = conv && ctxPct !== null
+            ? `${ctxPct}% (${fmtTok(conv.contextTokens)}/${conv.contextMaxTokens ? fmtTok(conv.contextMaxTokens) : '?'})`
+            : '暂无对话';
+          const tokStr = conv ? `已用 ${fmtTok(conv.totalTokens)} tok` : '已用 -- tok';
+          const tokOpacity = conv ? '1' : '0.45';
+
           return `
-            <div class="gn-th-label">${esc(grpShort)} 5h 额度</div>
-            <div class="gn-th-hero" style="color:${remCol};">${esc(heroStr)}</div>
-            ${subLine1 ? `<div class="gn-th-sub">${esc(subLine1)}</div>` : ''}
-            <div class="gn-th-sub">${esc(subLine2)}</div>
+            <div class="gn-th-bars">
+              ${renderBarRow('5h 额度', rem5, text5h, col5h)}
+              ${renderBarRow('周额度', remWeek, textWeek, colWeek)}
+              ${renderBarRow('上下文', ctxPct, textCtx, colCtx)}
+            </div>
+            <div class="gn-th-hint" style="color:#000000;opacity:${tokOpacity};margin-top:calc(2px * var(--gn-bubble-scale, 1));font-size:calc(9.5px * var(--gn-bubble-scale, 1));line-height:1.1;min-height:calc(11px * var(--gn-bubble-scale, 1));">${esc(tokStr)}</div>
           `;
         }
         if (hud.bubbleStage === 3 && hud.turnSummary) {
@@ -2894,6 +2973,16 @@
         </div>
 
         <div class="gn-set-row">
+          <div class="gn-set-label"><span>📊 气泡显示样式</span><span style="font-size:10px;opacity:.65;">${hud.prefs.bubbleStyle === 'text' ? '文字描述' : '进度条'}</span></div>
+          <div class="gn-chip-row">
+            ${[
+              ['bars', '进度条'],
+              ['text', '文字描述']
+            ].map(([st, lbl]) => `<button type="button" class="gn-chip ${(hud.prefs.bubbleStyle || 'bars') === st ? 'is-active' : ''}" data-gn-bubble-style="${st}">${lbl}</button>`).join('')}
+          </div>
+        </div>
+
+        <div class="gn-set-row">
           <div class="gn-set-label"><span>👁 透明度</span><span class="gn-mono" data-gn-val="opacity">${curOpacity}%</span></div>
           <input type="range" class="gn-range" min="35" max="100" step="5" value="${curOpacity}" data-gn-range="opacity" />
         </div>
@@ -3073,9 +3162,9 @@
         <div class="gn-stage">
           <div class="gn-thought-wrap">
             <svg class="gn-thought-svg" viewBox="0 0 222 152" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <ellipse cx="111" cy="57" rx="102" ry="50" fill="#ffffff" fill-opacity="0.96" stroke="#293978" stroke-width="4" />
-              <ellipse cx="150" cy="116" rx="11" ry="7.5" fill="#ffffff" fill-opacity="0.96" stroke="#293978" stroke-width="3.2" />
-              <ellipse cx="168" cy="134" rx="7" ry="5" fill="#ffffff" fill-opacity="0.96" stroke="#293978" stroke-width="3" />
+              <ellipse cx="111" cy="57" rx="102" ry="50" fill="#ffffff" fill-opacity="0.96" stroke="#293978" stroke-width="2" />
+              <ellipse cx="150" cy="116" rx="11" ry="7.5" fill="#ffffff" fill-opacity="0.96" stroke="#293978" stroke-width="1.6" />
+              <ellipse cx="168" cy="134" rx="7" ry="5" fill="#ffffff" fill-opacity="0.96" stroke="#293978" stroke-width="1.5" />
             </svg>
             <div class="gn-thought-hit"></div>
           </div>
@@ -3363,6 +3452,16 @@
             if (nextSec <= 0) clearPokeBubbleTimer();
             else schedulePokeBubbleAutoHide();
           }
+          renderSettingsPanel();
+          return;
+        }
+
+        const bubbleStyleEl = e.target && e.target.closest ? e.target.closest('[data-gn-bubble-style]') : null;
+        if (bubbleStyleEl) {
+          e.stopPropagation();
+          const st = bubbleStyleEl.getAttribute('data-gn-bubble-style') === 'text' ? 'text' : 'bars';
+          savePrefsPatch({ bubbleStyle: st });
+          if (hud.bubbleStage === 1) renderThoughtBubbleContent(false);
           renderSettingsPanel();
           return;
         }
